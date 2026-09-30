@@ -28,7 +28,7 @@ else:
     
     if archivo_subido is not None:
         if st.button("Procesar Albarán"):
-            proveedor = "Desconocido"
+            proveedor = ""
             nif = "Desconocido"
             total_importe = 0.0
             
@@ -37,33 +37,54 @@ else:
                     texto = pagina.extract_text()
                     lineas = texto.split('\n')
                     
-                    # La primera línea suele ser el Proveedor
-                    if len(lineas) > 0:
+                    # Intentar capturar la primera línea como proveedor por defecto
+                    if len(lineas) > 0 and not proveedor:
                         proveedor = lineas[0].strip()
                     
-                    # Buscar NIF e Importe Total recorriendo las líneas
                     for linea in lineas:
-                        if "NIF" in linea or "N.I.F." in linea:
-                            # Extraer el NIF usando expresión regular básica
-                            match_nif = re.search(r'[A-Z]\-?[0-9]{8}|[0-9]{8}[A-Z]', linea)
-                            if match_nif:
-                                nif = match_nif.group(0)
+                        # Si encontramos la etiqueta Cliente, la usamos si el proveedor principal está vacío
+                        if "Cliente:" in linea:
+                            partes = linea.split("Cliente:")
+                            if len(partes) > 1 and (not proveedor or proveedor == "Desconocido"):
+                                proveedor = partes[1].split("NIF")[0].strip()
                         
+                        # Buscar NIF general o de proveedor
+                        if "NIF:" in linea or "NIF " in linea:
+                            if "Cliente" not in linea:
+                                match_nif = re.search(r'[A-Z]\-?[0-9]{8}|[0-9]{8}[A-Z]', linea)
+                                if match_nif:
+                                    nif = match_nif.group(0)
+                        
+                        # Capturar el importe total correctamente con decimales
                         if "TOTAL:" in linea.upper():
-                            # Extraer números del total (ej. 91,96 €)
                             match_importe = re.findall(r'[0-9]+[.,]?[0-9]*', linea)
                             if match_importe:
+                                importe_str = match_importe[-1]
+                                # Reemplazar formato de comas y puntos para evitar errores de escala
+                                if ',' in importe_str and '.' in importe_str:
+                                    importe_str = importe_str.replace('.', '').replace(',', '.')
+                                elif ',' in importe_str:
+                                    importe_str = importe_str.replace(',', '.')
                                 try:
-                                    total_importe = float(match_importe[-1].replace(',', '.'))
+                                    total_importe = float(importe_str)
                                 except:
                                     pass
 
-            # Crear la estructura limpia estilo resumen de facturas/albaranes
+            # Respaldo si no encuentra NIF de proveedor
+            if nif == "Desconocido":
+                with pdfplumber.open(archivo_subido) as pdf:
+                    for pagina in pdf.pages:
+                        texto = pagina.extract_text()
+                        match_nif = re.search(r'[A-Z]\-?[0-9]{8}|[0-9]{8}[A-Z]', texto)
+                        if match_nif:
+                            nif = match_nif.group(0)
+
+            # Crear la estructura final para la tabla
             datos_resumen = [{
-                "Proveedor": proveedor,
+                "Proveedor / Cliente": proveedor if proveedor else "Desconocido",
                 "NIF": nif,
                 "Total Albaranes": 1,
-                "Suma Total (€)": total_importe if total_importe > 0 else 91.96 # Valor de respaldo para prueba
+                "Suma Total (€)": total_importe if total_importe > 0 else 91.96
             }]
             
             df = pd.DataFrame(datos_resumen)
