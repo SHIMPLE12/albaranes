@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import pdfplumber
 
 # Configurar el límite gratuito
 LIMITE_GRATUITO = 15
@@ -26,14 +27,42 @@ else:
     
     if archivo_subido is not None:
         if st.button("Procesar Albarán"):
-            # AQUÍ VA TU LÓGICA DE EXTRACCIÓN CON PDFPLUMBER
-            # Ejemplo simulado de datos extraídos para que funcione el botón de descarga:
-            datos_ejemplo = {
-                "Concepto": ["Artículo extraído del albarán"],
-                "Cantidad": [1],
-                "Precio": [0.0]
-            }
-            df = pd.DataFrame(datos_ejemplo)
+            # LÓGICA DE EXTRACCIÓN REAL CON PDFPLUMBER
+            filas_extraidas = []
+            
+            with pdfplumber.open(archivo_subido) as pdf:
+                for pagina in pdf.pages:
+                    # Extraer texto de la página línea por línea
+                    texto = pagina.extract_text()
+                    lineas = texto.split('\n')
+                    
+                    for linea in lineas:
+                        # Aquí puedes afinar el filtro según cómo aparezcan los datos en tus albaranes
+                        filas_extraidas.append({
+                            "Texto Detectado": linea
+                        })
+            
+            # Si prefieres extraer tablas estructuradas directamente si el PDF las soporta:
+            # (Intentamos extraer tablas de la primera página como refuerzo)
+            with pdfplumber.open(archivo_subido) as pdf:
+                for pagina in pdf.pages:
+                    tabla = pagina.extract_table()
+                    if tabla:
+                        # Si encuentra tabla estructurada, la aprovechamos
+                        headers = tabla[0]
+                        for fila in tabla[1:]:
+                            if len(fila) >= 3:
+                                filas_extraidas.append({
+                                    "Concepto": fila[1] if len(fila) > 1 else "N/D",
+                                    "Cantidad": fila[0] if len(fila) > 0 else "N/D",
+                                    "Precio": fila[2] if len(fila) > 2 else "N/D"
+                                })
+
+            # Si no ha pillado tabla estructurada por celdas, guardamos el texto plano analizado
+            if not filas_extraidas:
+                filas_extraidas = [{"Concepto": "Revisar PDF - Texto extraído genérico", "Cantidad": 1, "Precio": 0.0}]
+
+            df = pd.DataFrame(filas_extraidas)
             
             # Convertir a CSV para la descarga
             csv_data = df.to_csv(index=False).encode('utf-8')
@@ -44,7 +73,7 @@ else:
             
             # --- MOSTRAR EL BOTÓN DE DESCARGA ---
             st.download_button(
-                label="📥 Descargar resultados (CSV)",
+                label="📥 Descargar resultados reales (CSV)",
                 data=csv_data,
                 file_name="albaran_procesado.csv",
                 mime="text/csv"
