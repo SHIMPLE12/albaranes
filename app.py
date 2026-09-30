@@ -4,17 +4,17 @@ import pdfplumber
 import re
 from pypdf import PdfWriter
 import io
+import zipfile
+import os
 
 # Configurar el límite gratuito
 LIMITE_GRATUITO = 15
 
-# Inicializar contador y lista de PDFs en sesión
+# Inicializar contador en sesión
 if 'albaranes_procesados' not in st.session_state:
     st.session_state.albaranes_procesados = 0
-if 'pdfs_acumulados' not in st.session_state:
-    st.session_state.pdfs_acumulados = []
 
-st.title("Procesador y Unificador de Albaranes")
+st.title("Procesador, Agrupador y Organizador de Albaranes")
 
 # Mostrar consumo en la barra lateral
 st.sidebar.info(f"Has usado {st.session_state.albaranes_procesados} de {LIMITE_GRATUITO} albaranes gratuitos este mes.")
@@ -31,9 +31,10 @@ else:
     archivos_subidos = st.file_uploader("Sube tus archivos PDF de albaranes aquí", type=["pdf"], accept_multiple_files=True)
     
     if archivos_subidos:
-        if st.button("Procesar y Agrupar Albaranes"):
+        if st.button("Procesar y Organizar por Proveedor"):
             datos_globales = []
-            pdf_writer = PdfWriter()
+            # Diccionario para agrupar los bytes de los PDFs por su criterio de proveedor/nif/fecha
+            archivos_por_grupo = {}
             
             for archivo_subido in archivos_subidos:
                 texto_completo = ""
@@ -69,18 +70,15 @@ else:
                 for linea in lineas:
                     linea_upper = linea.upper()
                     
-                    # Buscar NIF si no tenemos proveedor claro
                     if "NIF" in linea_upper or "CIF" in linea_upper:
                         match_nif = re.search(regex_nif, linea)
                         if match_nif and nif_identificador == "Desconocido":
                             nif_identificador = match_nif.group(0)
                     
-                    # Buscar Fecha si faltan los anteriores
                     match_f = re.search(regex_fecha, linea)
                     if match_f and fecha_doc == "Desconocida":
                         fecha_doc = match_f.group(0)
 
-                    # Buscar Total Importe
                     if "TOTAL" in linea_upper and "SUBTOTAL" not in linea_upper:
                         match_importe = re.findall(r'(\d{1,3}(?:\.\d{3})*,\d{2}|\d+[\.,]\d{2})', linea)
                         if match_importe:
@@ -92,50 +90,60 @@ else:
                             except:
                                 pass
 
-                # Lógica de agrupación solicitada: Proveedor -> si no, NIF -> si no, Fecha
+                # Lógica de agrupación en cascada solicitada: Proveedor -> si no, NIF -> si no, Fecha
                 criterio_agrupacion = proveedor
                 if proveedor == "Desconocido" or not proveedor:
                     if nif_identificador != "Desconocido":
-                        criterio_agrupacion = f"NIF: {nif_identificador}"
+                        criterio_agrupacion = f"NIF_{nif_identificador}"
                     else:
-                        criterio_agrupacion = f"Fecha: {fecha_doc}"
+                        criterio_agrupacion = f"Fecha_{fecha_doc}"
 
-                # Añadir a los datos del CSV
+                # Limpiar caracteres extraños en el nombre de la carpeta para evitar errores del sistema de ficheros
+                criterio_agrupacion = re.sub(r'[<>:"/\\|?*]', '', criterio_agrupacion).strip()
+
+                # Añadir a los datos del CSV resumen
                 datos_globales.append({
-                    "Agrupado Por (Proveedor/NIF/Fecha)": criterio_agrupacion,
+                    "Agrupado Por": criterio_agrupacion,
                     "NIF Identificado": nif_identificador,
                     "Fecha Detectada": fecha_doc,
                     "Total Albaranes": 1,
-                    "Suma Total (€)": round(total_importe, 2)
+                    "Suma Total (€)": round(total_importe, 2),
+                    "Nombre Archivo Original": archivo_subido.name
                 })
                 
-                # Añadir al unificador de PDFs
+                # Almacenar el binario del PDF agrupado por su proveedor/criterio
                 archivo_subido.seek(0)
-                pdf_writer.append(archivo_subido)
+                if criterio_agrupacion not in archivos_por_grupo:
+                    archivos_por_grupo[criterio_agrupacion] = []
+                archivos_por_grupo[criterio_agrupacion].append((archivo_subido.name, archivo_subido.read()))
+                
                 st.session_state.albaranes_procesados += 1
 
-            # Crear DataFrame resumen
+            # Crear DataFrame resumen general
             df = pd.DataFrame(datos_globales)
             csv_data = df.to_csv(index=False).encode('utf-8')
             
-            # Guardar PDF unificado en memoria
-            pdf_output = io.BytesIO()
-            pdf_writer.write(pdf_output)
-            pdf_output.seek(0)
+            # Crear archivo ZIP en memoria que contendrá las carpetas por proveedor
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                # Añadir el CSV resumen general dentro del ZIP principal
+                zip_file.writestr("resumen_general_albaranes.csv", csv_data)
+                
+                # Crear carpetas virtuales dentro del ZIP por cada proveedor y meter sus PDFs
+                for grupo, lista_archivos in archivos_por_grupo.items():
+                    for nombre_original, contenido_pdf in lista_archivos:
+                        # Ruta dentro del ZIP: CarpetaProveedor/nombre_archivo.pdf
+                        ruta_en_zip = os.path.join(grupo, nombre_original)
+                        zip_file.writestr(ruta_en_zip, contenido_pdf)
+            
+            zip_buffer.seek(0)
 
-            st.success("¡Albaranes procesados, agrupados y unidos correctamente!")
+            st.success("¡Albaranes procesados y organizados por carpetas de proveedores con éxito!")
             
-            # Botones de Descarga Dual (CSV Resumen + PDF Unificado)
+            # Botón único de descarga del paquete ZIP completo
             st.download_button(
-                label="📥 Descargar Resumen Agrupado (CSV)",
-                data=csv_data,
-                file_name="resumen_agrupado_albaranes.csv",
-                mime="text/csv"
-            )
-            
-            st.download_button(
-                label="📑 Descargar Todos los PDFs Unidos (PDF)",
-                data=pdf_output,
-                file_name="albaranes_unidos.pdf",
-                mime="application/pdf"
+                label="📦 Descargar Paquete ZIP (Carpetas por Proveedor + CSV)",
+                data=zip_buffer,
+                file_name="albaranes_organizados_por_proveedor.zip",
+                mime="application/zip"
             )
