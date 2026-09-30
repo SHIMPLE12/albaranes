@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 
 # Configurar el límite gratuito
 LIMITE_GRATUITO = 15
@@ -26,7 +27,25 @@ else:
     if archivo_subido is not None:
         if st.button("Procesar Albarán"):
             # AQUÍ VA TU LÓGICA DE EXTRACCIÓN CON PDFPLUMBER
+            # Ejemplo simulado de datos extraídos para que funcione el botón de descarga:
+            datos_ejemplo = {
+                "Concepto": ["Artículo extraído del albarán"],
+                "Cantidad": [1],
+                "Precio": [0.0]
+            }
+            df = pd.DataFrame(datos_ejemplo)
+            
+            # Convertir a CSV para la descarga
+            csv_data = df.to_csv(index=False).encode('utf-8')
             
             # Sumar 1 al contador tras procesar con éxito
             st.session_state.albaranes_procesados += 1
             st.success("¡Albarán procesado correctamente!")
+            
+            # --- MOSTRAR EL BOTÓN DE DESCARGA ---
+            st.download_button(
+                label="📥 Descargar resultados (CSV)",
+                data=csv_data,
+                file_name="albaran_procesado.csv",
+                mime="text/csv"
+            )
