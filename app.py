@@ -80,13 +80,13 @@ else:
                 sin_iva = 0.0
                 con_iva = 0.0
                 
-                # Sistema de reintentos automáticos utilizando el modelo correcto: gemini-3.8-flash
+                # Usamos gemini-1.5-flash que tiene un límite gratuito alto de 1500 peticiones diarias
                 max_intentos = 4
                 
                 for intento in range(max_intentos):
                     try:
                         response = client.models.generate_content(
-                            model='gemini-3.8-flash',
+                            model='gemini-1.5-flash',
                             contents=prompt,
                             config=types.GenerateContentConfig(
                                 response_mime_type="application/json",
@@ -103,11 +103,11 @@ else:
                         
                         with logs_container:
                             st.write(f"✅ **{nombre_original}** -> Proveedor: `{proveedor}` | Con IVA: `{con_iva}€`")
-                        break # Salir del bucle si va bien
+                        break
                         
                     except Exception as e:
                         if intento < max_intentos - 1:
-                            time.sleep(2 * (intento + 1))
+                            time.sleep(3 * (intento + 1))
                         else:
                             with logs_container:
                                 st.write(f"⚠️ Error en {nombre_original}: {e}")
