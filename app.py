@@ -2,148 +2,170 @@ import streamlit as st
 import pandas as pd
 import pdfplumber
 import re
-from pypdf import PdfWriter
+import json
 import io
 import zipfile
-import os
+from pypdf import PdfWriter
+from google import genai
+from google.genai import types
 
-# Configurar el límite gratuito
+# Configurar el límite gratuito de la app
 LIMITE_GRATUITO = 15
 
 # Inicializar contador en sesión
 if 'albaranes_procesados' not in st.session_state:
     st.session_state.albaranes_procesados = 0
 
-st.title("Procesador, Agrupador y Organizador de Albaranes")
+st.title("🤖 Procesador Inteligente de Albaranes con IA")
 
-# Mostrar consumo en la barra lateral
+# --- BARRA LATERAL: CONFIGURACIÓN Y API GRATUITA ---
+st.sidebar.header("Configuración")
 st.sidebar.info(f"Has usado {st.session_state.albaranes_procesados} de {LIMITE_GRATUITO} albaranes gratuitos este mes.")
 
-# Comprobar límite gratuito
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔑 Clave de API de Gemini (Gratis)")
+st.sidebar.markdown(
+    "Para usar la IA gratis:\n"
+    "1. Entra en [Google AI Studio](https://aistudio.google.com/)\n"
+    "2. Inicia sesión con tu cuenta de Google.\n"
+    "3. Haz clic en **Get API key** y cópiala.\n"
+    "4. Pégala aquí abajo:"
+)
+
+# Campo para introducir la API Key (puedes guardarla también en Streamlit Secrets)
+api_key = st.sidebar.text_input("API Key de Gemini", type="password")
+
+st.sidebar.markdown("---")
+# Comprobar límite gratuito de la app
 if st.session_state.albaranes_procesados >= LIMITE_GRATUITO:
     st.error("Has alcanzado el límite de tu plan gratuito (15 albaranes).")
-    st.warning("Para continuar con albaranes ilimitados, pásate al **Plan Pro** por 19€/mes.")
-    st.info("📲 **¿Cómo activar el Plan Pro por Bizum?**\n"
-            "1. Realiza un Bizum de 19€ al teléfono de contacto.\n"
-            "2. Envíanos tu comprobante y te activaremos el acceso ilimitado.")
+    st.warning("Para continuar con albaranes ilimitados, pásate al **Plan Pro** por 19€/mes (Bizum).")
 else:
     # Subida de múltiples archivos PDF
     archivos_subidos = st.file_uploader("Sube tus archivos PDF de albaranes aquí", type=["pdf"], accept_multiple_files=True)
     
     if archivos_subidos:
-        if st.button("Procesar y Organizar por Proveedor"):
-            datos_globales = []
-            # Diccionario para agrupar los bytes de los PDFs por su criterio de proveedor/nif/fecha
-            archivos_por_grupo = {}
+        if not api_key:
+            st.warning("⚠️ Por favor, introduce tu clave de API gratuita de Gemini en la barra lateral para poder procesar los albaranes con Inteligencia Artificial.")
+        elif st.button("🚀 Procesar Albaranes con IA"):
+            # Inicializar cliente de la API de Google GenAI
+            client = genai.Client(api_key=api_key)
             
-            for archivo_subido in archivos_subidos:
+            datos_globales = []
+            writers_por_proveedor = {}
+            conteo_albaranes_por_grupo = {}
+            suma_importes_por_grupo = {}
+            
+            barra_progreso = st.progress(0)
+            total_archivos = len(archivos_subidos)
+            
+            for idx, archivo_subido in enumerate(archivos_subidos):
                 texto_completo = ""
                 
-                # Leer PDF con pdfplumber para extracción de datos
+                # 1. Extraer texto plano con pdfplumber
                 with pdfplumber.open(archivo_subido) as pdf:
                     for pagina in pdf.pages:
                         t = pagina.extract_text(layout=False)
                         if t:
                             texto_completo += t + "\n"
                 
-                lineas = [l.strip() for l in texto_completo.split('\n') if l.strip()]
+                # 2. Enviar el texto a la IA con un prompt estructurado
+                prompt = f"""
+                Analiza el siguiente texto extraído de un albarán comercial y extrae la información en formato JSON estricto (sin markdown adicional, solo el objeto JSON):
+                {{
+                  "proveedor": "Nombre de la empresa emisora o proveedor (si no lo encuentras, pon 'Desconocido')",
+                  "nif_proveedor": "NIF o CIF del proveedor (si no lo hay, pon 'Desconocido')",
+                  "fecha": "Fecha del albarán en formato DD/MM/YYYY (si no lo hay, pon 'Desconocida')",
+                  "importe_total": 0.00
+                }}
+
+                Texto del albarán:
+                {texto_completo}
+                """
                 
-                # 1. Extracción de Identificación (Proveedor -> NIF -> Fecha)
-                proveedor = "Desconocido"
-                nif_identificador = "Desconocido"
-                fecha_doc = "Desconocida"
-                total_importe = 0.0
-                
-                # Buscar Proveedor en las primeras líneas
-                for linea in lineas[:6]:
-                    linea_up = linea.upper()
-                    if any(term in linea_up for term in ["S.L.", "S.A.", "SL", "SA", "CB", "LOGÍSTICA", "DISTRIBUCIÓN", "FOOD", "HOSTELERÍA"]):
-                        proveedor = linea
-                        break
-                if proveedor == "Desconocido" and len(lineas) > 0:
-                    proveedor = lineas[0]
-
-                # Expresión regular para NIF/CIF y Fechas
-                regex_nif = r'\b([A-HJ-NP-SU-W][0-9]{7}[0-9A-J]|[0-9]{8}[A-Z]|[A-Z][0-9]{7}[0-9A-J])\b'
-                regex_fecha = r'\b(0?[1-9]|[12][0-9]|3[01])[-/.](0?[1-9]|1[012])[-/.](20[2-9][0-9])\b'
-
-                for linea in lineas:
-                    linea_upper = linea.upper()
+                try:
+                    response = client.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            temperature=0.1
+                        ),
+                    )
                     
-                    if "NIF" in linea_upper or "CIF" in linea_upper:
-                        match_nif = re.search(regex_nif, linea)
-                        if match_nif and nif_identificador == "Desconocido":
-                            nif_identificador = match_nif.group(0)
+                    resultado_json = json.loads(response.text)
+                    proveedor = resultado_json.get("proveedor", "Desconocido").strip()
+                    nif_prov = resultado_json.get("nif_proveedor", "Desconocido").strip()
+                    fecha_doc = resultado_json.get("fecha", "Desconocida").strip()
+                    total_importe = float(resultado_json.get("importe_total", 0.0))
                     
-                    match_f = re.search(regex_fecha, linea)
-                    if match_f and fecha_doc == "Desconocida":
-                        fecha_doc = match_f.group(0)
+                except Exception as e:
+                    # Respaldo de seguridad si ocurre algún error de conexión puntual
+                    proveedor = "Desconocido"
+                    nif_prov = "Desconocido"
+                    fecha_doc = "Desconocida"
+                    total_importe = 0.0
 
-                    if "TOTAL" in linea_upper and "SUBTOTAL" not in linea_upper:
-                        match_importe = re.findall(r'(\d{1,3}(?:\.\d{3})*,\d{2}|\d+[\.,]\d{2})', linea)
-                        if match_importe:
-                            imp_str = match_importe[-1].replace('.', '').replace(',', '.')
-                            try:
-                                val = float(imp_str)
-                                if val > total_importe:
-                                    total_importe = val
-                            except:
-                                pass
-
-                # Lógica de agrupación en cascada solicitada: Proveedor -> si no, NIF -> si no, Fecha
+                # 3. Lógica de agrupación en cascada: Proveedor -> si no, NIF -> si no, Fecha
                 criterio_agrupacion = proveedor
                 if proveedor == "Desconocido" or not proveedor:
-                    if nif_identificador != "Desconocido":
-                        criterio_agrupacion = f"NIF_{nif_identificador}"
+                    if nif_prov != "Desconocido":
+                        criterio_agrupacion = f"NIF_{nif_prov}"
                     else:
                         criterio_agrupacion = f"Fecha_{fecha_doc}"
 
-                # Limpiar caracteres extraños en el nombre de la carpeta para evitar errores del sistema de ficheros
+                # Limpiar caracteres prohibidos en nombres de carpetas
                 criterio_agrupacion = re.sub(r'[<>:"/\\|?*]', '', criterio_agrupacion).strip()
 
-                # Añadir a los datos del CSV resumen
-                datos_globales.append({
-                    "Agrupado Por": criterio_agrupacion,
-                    "NIF Identificado": nif_identificador,
-                    "Fecha Detectada": fecha_doc,
-                    "Total Albaranes": 1,
-                    "Suma Total (€)": round(total_importe, 2),
-                    "Nombre Archivo Original": archivo_subido.name
-                })
+                # Acumular para el CSV resumen
+                if criterio_agrupacion not in conteo_albaranes_por_grupo:
+                    conteo_albaranes_por_grupo[criterio_agrupacion] = 0
+                    suma_importes_por_grupo[criterio_agrupacion] = 0.0
                 
-                # Almacenar el binario del PDF agrupado por su proveedor/criterio
+                conteo_albaranes_por_grupo[criterio_agrupacion] += 1
+                suma_importes_por_grupo[criterio_agrupacion] += total_importe
+
+                # 4. Fusionar PDFs físicos por proveedor
+                if criterio_agrupacion not in writers_por_proveedor:
+                    writers_por_proveedor[criterio_agrupacion] = PdfWriter()
+                
                 archivo_subido.seek(0)
-                if criterio_agrupacion not in archivos_por_grupo:
-                    archivos_por_grupo[criterio_agrupacion] = []
-                archivos_por_grupo[criterio_agrupacion].append((archivo_subido.name, archivo_subido.read()))
+                writers_por_proveedor[criterio_agrupacion].append(archivo_subido)
                 
                 st.session_state.albaranes_procesados += 1
+                barra_progreso.progress((idx + 1) / total_archivos)
 
-            # Crear DataFrame resumen general
+            # Rellenar datos para el DataFrame global
+            for grupo in conteo_albaranes_por_grupo:
+                datos_globales.append({
+                    "Agrupado Por": grupo,
+                    "Total Albaranes": conteo_albaranes_por_grupo[grupo],
+                    "Suma Total (€)": round(suma_importes_por_grupo[grupo], 2)
+                })
+
             df = pd.DataFrame(datos_globales)
             csv_data = df.to_csv(index=False).encode('utf-8')
             
-            # Crear archivo ZIP en memoria que contendrá las carpetas por proveedor
+            # 5. Crear el archivo ZIP con carpetas organizadas y PDFs unidos
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                # Añadir el CSV resumen general dentro del ZIP principal
                 zip_file.writestr("resumen_general_albaranes.csv", csv_data)
                 
-                # Crear carpetas virtuales dentro del ZIP por cada proveedor y meter sus PDFs
-                for grupo, lista_archivos in archivos_por_grupo.items():
-                    for nombre_original, contenido_pdf in lista_archivos:
-                        # Ruta dentro del ZIP: CarpetaProveedor/nombre_archivo.pdf
-                        ruta_en_zip = os.path.join(grupo, nombre_original)
-                        zip_file.writestr(ruta_en_zip, contenido_pdf)
+                for grupo, writer in writers_por_proveedor.items():
+                    pdf_output = io.BytesIO()
+                    writer.write(pdf_output)
+                    pdf_output.seek(0)
+                    nombre_archivo_pdf = f"{grupo}/albaranes_unidos_{grupo}.pdf"
+                    zip_file.writestr(nombre_archivo_pdf, pdf_output.read())
             
             zip_buffer.seek(0)
 
-            st.success("¡Albaranes procesados y organizados por carpetas de proveedores con éxito!")
+            st.success("¡Proceso completado con Inteligencia Artificial con éxito!")
             
-            # Botón único de descarga del paquete ZIP completo
+            # Botón de descarga del paquete ZIP
             st.download_button(
-                label="📦 Descargar Paquete ZIP (Carpetas por Proveedor + CSV)",
+                label="📦 Descargar ZIP Inteligente (Carpetas + PDFs Unidos + CSV)",
                 data=zip_buffer,
-                file_name="albaranes_organizados_por_proveedor.zip",
+                file_name="albaranes_inteligentes_organizados.zip",
                 mime="application/zip"
             )
