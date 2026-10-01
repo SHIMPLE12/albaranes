@@ -45,7 +45,6 @@ else:
             barra_progreso = st.progress(0)
             total_archivos = len(archivos_subidos)
             
-            # Contenedor para ver qué va leyendo la IA en tiempo real (muy útil para depurar)
             logs_container = st.expander("🔍 Ver detalles de extracción por cada albarán", expanded=False)
             
             for idx, archivo_subido in enumerate(archivos_subidos):
@@ -59,14 +58,13 @@ else:
                         if t:
                             texto_completo += t + "\n"
                 
-                # Si el PDF está vacio o escaneado sin texto
                 if not texto_completo.strip():
                     texto_completo = "Texto no legible directamente."
 
                 # 2. Prompt directo y estructurado
                 prompt = f"""
                 Eres un asistente contable experto. Analiza el texto de este albarán y extrae los siguientes datos en formato JSON puro:
-                - proveedor: Nombre de la empresa emisora o proveedor (ej. Mercadona, Fritos S.L., Distribuciones S.A.). Si no lo encuentras, usa el nombre del archivo o 'Proveedor_Generico'.
+                - proveedor: Nombre exacto de la empresa emisora o proveedor de arriba del todo (ej. Mercadona, Fritos S.L.). Si no lo encuentras, usa 'Proveedor_Generico'.
                 - nif: NIF o CIF del proveedor. Si no hay, pon 'Desconocido'.
                 - fecha: Fecha del documento en formato DD/MM/YYYY. Si no hay, pon 'Desconocida'.
                 - importe_sin_iva: Número decimal (float) con la base imponible o total sin IVA (ej: 120.50). Si no hay, pon 0.0.
@@ -83,9 +81,9 @@ else:
                 con_iva = 0.0
                 
                 try:
-                    # Usamos response_mime_type="application/json" para garantizar respuesta JSON válida de la IA
+                    # Usamos el modelo actualizado y correcto: gemini-3.8-flash
                     response = client.models.generate_content(
-                        model='gemini-2.5-flash',
+                        model='gemini-3.8-flash',
                         contents=prompt,
                         config=types.GenerateContentConfig(
                             response_mime_type="application/json",
@@ -101,18 +99,17 @@ else:
                     con_iva = float(resultado_json.get("importe_con_iva", 0.0) or 0.0)
                     
                     with logs_container:
-                        st.write(f"✅ **{nombre_original}** -> Proveedor detectado: `{proveedor}` | Con IVA: `{con_iva}€`")
+                        st.write(f"✅ **{nombre_original}** -> Proveedor: `{proveedor}` | Con IVA: `{con_iva}€`")
                         
                 except Exception as e:
                     with logs_container:
                         st.write(f"⚠️ Error procesando {nombre_original}: {e}")
-                    # Plan de emergencia: usar el nombre del archivo sin extensión como proveedor si falla la IA
-                    proveedor = re.sub(r'\.pdf$', '', nombre_original, flags=re.IGNORECASE)
+                    proveedor = "Proveedor_Generico"
 
-                # Limpieza estricta de caracteres no válidos para nombres de carpetas en Windows/Mac/Linux
+                # Limpieza estricta de caracteres para nombres de carpetas
                 criterio_agrupacion = re.sub(r'[<>:"/\\|?*]', '', proveedor).strip()
-                if not criterio_agrupacion or criterio_agrupacion.lower() in ["desconocido", "none", "null"]:
-                    criterio_agrupacion = re.sub(r'\.pdf$', '', nombre_original, flags=re.IGNORECASE)
+                if not criterio_agrupacion or criterio_agrupacion.lower() in ["desconocido", "none", "null", "proveedor_generico"]:
+                    criterio_agrupacion = "Otros_Proveedores"
 
                 # 3. Inicializar grupo de proveedor si no existe
                 if criterio_agrupacion not in writers_por_grupo:
@@ -154,10 +151,8 @@ else:
             # 5. Crear el ZIP con una carpeta por proveedor y su PDF unificado dentro
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                # Guardar el CSV resumen general
                 zip_file.writestr("resumen_general_albaranes.csv", csv_data)
                 
-                # Guardar el PDF unificado dentro de la carpeta de cada proveedor
                 for grupo, writer in writers_por_grupo.items():
                     pdf_output = io.BytesIO()
                     writer.write(pdf_output)
@@ -168,7 +163,7 @@ else:
             
             zip_buffer.seek(0)
 
-            st.success("¡Éxito total! Albaranes separados por proveedor, PDFs unidos de forma independiente y CSV calculado.")
+            st.success("¡Éxito total! Proveedores separados, PDFs unidos individualmente por cada empresa y CSV calculado.")
             
             st.download_button(
                 label="📦 Descargar ZIP Definitivo Organizado",
