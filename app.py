@@ -80,14 +80,13 @@ else:
                 sin_iva = 0.0
                 con_iva = 0.0
                 
-                # Sistema de reintentos automáticos por si la API da error 503 de saturación
+                # Sistema de reintentos automáticos utilizando el modelo correcto: gemini-3.8-flash
                 max_intentos = 4
-                exito_ia = False
                 
                 for intento in range(max_intentos):
                     try:
                         response = client.models.generate_content(
-                            model='gemini-2.5-flash',
+                            model='gemini-3.8-flash',
                             contents=prompt,
                             config=types.GenerateContentConfig(
                                 response_mime_type="application/json",
@@ -102,17 +101,16 @@ else:
                         sin_iva = float(resultado_json.get("importe_sin_iva", 0.0) or 0.0)
                         con_iva = float(resultado_json.get("importe_con_iva", 0.0) or 0.0)
                         
-                        exito_ia = True
                         with logs_container:
                             st.write(f"✅ **{nombre_original}** -> Proveedor: `{proveedor}` | Con IVA: `{con_iva}€`")
-                        break # Si sale bien, rompemos el bucle de reintentos
+                        break # Salir del bucle si va bien
                         
                     except Exception as e:
                         if intento < max_intentos - 1:
-                            time.sleep(2 * (intento + 1)) # Espera 2s, 4s, 6s antes de reintentar
+                            time.sleep(2 * (intento + 1))
                         else:
                             with logs_container:
-                                st.write(f"⚠️ No se pudo procesar {nombre_original} tras varios intentos: {e}")
+                                st.write(f"⚠️ Error en {nombre_original}: {e}")
 
                 # Limpieza estricta de caracteres para nombres de carpetas
                 criterio_agrupacion = re.sub(r'[<>:"/\\|?*]', '', proveedor).strip()
@@ -142,7 +140,6 @@ else:
                 st.session_state.albaranes_procesados += 1
                 barra_progreso.progress((idx + 1) / total_archivos)
                 
-                # Pausa breve de 1 segundo entre archivo y archivo para cuidar los límites de la API gratuita
                 time.sleep(1)
 
             # Construir filas del CSV final por proveedor
