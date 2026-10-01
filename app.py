@@ -6,12 +6,12 @@ import pypdf
 import streamlit as st
 
 st.set_page_config(
-    page_title="Agrupador y Lector de Albaranes", page_icon="📄", layout="wide"
+    page_title="Lector Estricto de Albaranes", page_icon="📄", layout="wide"
 )
 
-st.title("📄 Lector y Agrupador de Albaranes por Proveedor")
+st.title("🤖 Lector Estricto de Albaranes por Proveedor")
 st.write(
-    "Sube tus albaranes. La app los unirá por proveedor y calculará los importes. Si alguna cifra no es correcta, puedes editarla directamente en la tabla antes de descargar el CSV."
+    "La aplicación une los PDFs por proveedor y realiza una lectura estricta de las líneas finales de cada documento para extraer con precisión los importes con y sin IVA."
 )
 
 uploaded_files = st.file_uploader(
@@ -34,7 +34,7 @@ def extraer_texto_pdf(pdf_file):
 
 
 def limpiar_nombre_proveedor(texto, nombre_archivo):
-  """Detecta el nombre del proveedor evitando palabras genéricas y fechas."""
+  """Detecta de forma estricta el nombre del proveedor en las primeras líneas."""
   lineas = [l.strip() for l in texto.split("\n") if l.strip()]
   ignorar = [
       "entrada",
@@ -45,10 +45,12 @@ def limpiar_nombre_proveedor(texto, nombre_archivo):
       "cliente",
       "nif",
       "cif",
+      "dirección",
+      "tel",
   ]
 
   proveedor_detectado = ""
-  for linea in lineas[:15]:
+  for linea in lineas[:12]:
     linea_lower = linea.lower()
     if len(linea) < 3 or linea.isdigit():
       continue
@@ -72,48 +74,71 @@ def limpiar_nombre_proveedor(texto, nombre_archivo):
   return proveedor_limpio[:35].upper().strip()
 
 
-def extraer_importes(texto):
-  """Busca de forma más flexible los importes sin IVA, IVA y Total con IVA."""
+def extraccion_estricta_importes(texto):
+  """Lectura estricta focalizada en buscar importes monetarios claros (ej: 123,45 o 1.234,56)."""
   sin_iva = 0.0
   iva = 0.0
   total = 0.0
-  texto_lower = texto.lower()
 
-  # Patrones más amplios para capturar distintas nomenclaturas en albaranes
-  patron_base = r"(?:base\s*imponible|subtotal|neto|gravable|total\s*s/?iva)[\s:]*([0-9.,]+)"
-  patron_iva = (
-      r"(?:cuota\s*iva|iva\s*(?:\d+[\.,]?\d*%?)?|impuestos)[\s:]*([0-9.,]+)"
-  )
-  patron_total = r"(?:total\s*(?:factura|albarán|a\s*pagar|general)?|importe\s*total|a\s*pagar)[\s:]*([0-9.,]+)"
+  # Dividir en líneas y limpiar
+  lineas = [l.strip() for l in texto.split("\n") if l.strip()]
 
-  def limpiar_numero(val_str):
-    try:
-      # Manejo de formatos de moneda (ej: 1.234,56 o 1234.56 o 1,234.56)
-      val_str = val_str.replace("€", "").strip()
-      if "." in val_str and "," in val_str:
-        if val_str.rfind(",") > val_str.rfind("."):
-          val_str = val_str.replace(".", "").replace(",", ".")
-        else:
-          val_str = val_str.replace(",", "")
-      elif "," in val_str:
-        val_str = val_str.replace(",", ".")
-      return float(val_str)
-    except:
-      return 0.0
+  # Patrón estricto para encontrar números con formato de moneda europeo o estándar
+  # Busca números con decimales obligatorios (ej: 45,00 o 123.45 o 1.234,56)
+  patron_monto = r"\b\d{1,3}(?:\.\d{3})*,\d{2}\b|\b\d+,\d{2}\b|\b\d+\.\d{2}\b"
 
-  match_base = re.search(patron_base, texto_lower)
-  if match_base:
-    sin_iva = limpiar_numero(match_base.group(1))
+  # Recorremos el documento buscando etiquetas clave combinadas con montos
+  for i, linea in enumerate(lineas):
+    linea_lower = linea.lower()
 
-  match_iva = re.search(patron_iva, texto_lower)
-  if match_iva:
-    iva = limpiar_numero(match_iva.group(1))
+    # Buscar Total / Importe Total
+    if any(
+        k in linea_lower
+        for k in [
+            "total",
+            "importe",
+            "a pagar",
+            "liquido",
+            "suma",
+            "eur",
+            "€",
+        ]
+    ):
+      # Buscamos números en la misma línea o en la línea inmediatamente siguiente
+      bloque_busqueda = linea
+      if i + 1 < len(lineas):
+        bloque_busqueda += " " + lineas[i + 1]
 
-  match_total = re.search(patron_total, texto_lower)
-  if match_total:
-    total = limpiar_numero(match_total.group(1))
+      montos = re.findall(patron_monto, bloque_busqueda)
+      if montos:
+        # El último monto encontrado suele ser el total definitivo
+        total = limpiar_numero(montos[-1])
 
-  # Lógica de respaldo cruzada
+    # Buscar Base Imponible / Sin IVA
+    if any(
+        k in linea_lower
+        for k in ["base", "s/iva", "neto", "subtotal", "gravable"]
+    ):
+      montos = re.findall(patron_monto, linea)
+      if not montos and i + 1 < len(lineas):
+        montos = re.findall(patron_monto, lineas[i + 1])
+      if montos:
+        sin_iva = limpiar_numero(montos[0])
+
+    # Buscar IVA / Cuota
+    if any(k in linea_lower for k in ["iva", "cuota", "21%", "10%", "4%"]):
+      montos = re.findall(patron_monto, linea)
+      if not montos and i + 1 < len(lineas):
+        montos = re.findall(patron_monto, lineas[i + 1])
+      if montos:
+        # Evitar confundir el porcentaje de IVA (ej: 21) con el importe en euros
+        montos_filtrados = [
+            m for m in montos if m not in ["21,00", "10,00", "4,00", "21", "10"]
+        ]
+        if montos_filtrados:
+          iva = limpiar_numero(montos_filtrados[0])
+
+  # Coherencia y cálculos cruzados si alguno quedó en 0
   if total > 0 and sin_iva == 0:
     if iva > 0:
       sin_iva = round(total - iva, 2)
@@ -130,6 +155,23 @@ def extraer_importes(texto):
   return sin_iva, iva, total
 
 
+def limpiar_numero(val_str):
+  try:
+    val_str = (
+        val_str.replace("€", "").replace("EUR", "").replace(" ", "").strip()
+    )
+    if "." in val_str and "," in val_str:
+      if val_str.rfind(",") > val_str.rfind("."):
+        val_str = val_str.replace(".", "").replace(",", ".")
+      else:
+        val_str = val_str.replace(",", "")
+    elif "," in val_str:
+      val_str = val_str.replace(",", ".")
+    return float(val_str)
+  except:
+    return 0.0
+
+
 if uploaded_files:
   st.success(f"¡{len(uploaded_files)} archivos cargados correctamente!")
 
@@ -142,9 +184,8 @@ if uploaded_files:
 
     texto = extraer_texto_pdf(io.BytesIO(file_bytes))
     proveedor = limpiar_nombre_proveedor(texto, file.name)
-    sin_iva, iva, total = extraer_importes(texto)
+    sin_iva, iva, total = extraccion_estricta_importes(texto)
 
-    # Guardamos el detalle individual de cada albarán
     detalle_albaranes.append({
         "Proveedor": proveedor,
         "Archivo": file.name,
@@ -161,23 +202,22 @@ if uploaded_files:
     for page in reader.pages:
       proveedores_pdfs[proveedor].add_page(page)
 
-  # Convertir a DataFrame inicial de albaranes individuales
   df_albaranes = pd.DataFrame(detalle_albaranes)
 
   st.subheader(
-      "✏️ Detalle de Albaranes Detectados (Editable si necesitas corregir"
-      " cifras)"
+      "✏️ Validación Estricta de Importes (Puedes editar cualquier celda si es"
+      " necesario)"
   )
   st.write(
-      "Puedes hacer clic directamente sobre cualquier celda de importes en la"
-      " tabla para corregirla antes de generar el resumen y el CSV."
+      "Revisa los valores extraídos. Si algún proveedor tiene un formato"
+      " atípico, puedes corregirlo directamente haciendo clic en la celda."
   )
 
-  # Tabla editable de albaranes
+  # Tabla interactiva para asegurar 100% de precisión en los datos del CSV
   df_editado = st.data_editor(df_albaranes, use_container_width=True, num_rows="fixed")
 
-  # --- RESUMEN AGRUPADO POR PROVEEDOR (Basado en la tabla editada) ---
-  st.subheader("📊 Resumen Consolidado por Proveedor")
+  # Resumen consolidado por proveedor
+  st.subheader("📊 Resumen Consolidado por Proveedor (Para el CSV)")
   df_resumen = (
       df_editado.groupby("Proveedor")[
           ["Total Sin IVA (€)", "IVA (€)", "Total Con IVA (€)"]
@@ -185,18 +225,17 @@ if uploaded_files:
       .sum()
       .reset_index()
   )
-  # Añadir conteo de albaranes
   conteo = df_editado.groupby("Proveedor").size().reset_index(name="Nº Albaranes")
   df_resumen = pd.merge(conteo, df_resumen, on="Proveedor")
 
   st.dataframe(df_resumen, use_container_width=True)
 
-  # Botón de descarga para CSV (exporta el resumen consolidado o el detalle editado)
+  # Opciones de descarga CSV
   tipo_csv = st.radio(
-      "¿Qué formato de CSV deseas descargar?",
+      "Selecciona el formato del CSV a descargar:",
       [
           "Resumen por Proveedor (Totales agrupados)",
-          "Detalle completo de todos los albaranes",
+          "Detalle completo por albarán",
       ],
       horizontal=True,
   )
@@ -217,10 +256,8 @@ if uploaded_files:
 
   st.divider()
 
-  # --- DESCARGAR ZIP CON PDFS UNIDOS ---
+  # Descargar ZIP con PDFs unidos por proveedor
   st.subheader("📦 PDFs Unidos por Proveedor")
-  st.write("Descarga el archivo ZIP con los PDFs unidos por cada proveedor.")
-
   zip_buffer = io.BytesIO()
   with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
     for prov, writer in proveedores_pdfs.items():
