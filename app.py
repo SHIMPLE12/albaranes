@@ -46,7 +46,7 @@ else:
             barra_progreso = st.progress(0)
             total_archivos = len(archivos_subidos)
             
-            logs_container = st.expander("🔍 Ver detalles de extracción por cada albarán", expanded=False)
+            logs_container = st.expander("🔍 Ver detalles de extracción por cada albarán", expanded=True)
             
             for idx, archivo_subido in enumerate(archivos_subidos):
                 texto_completo = ""
@@ -80,11 +80,14 @@ else:
                 sin_iva = 0.0
                 con_iva = 0.0
                 
-                max_intentos = 4
+                max_intentos = 5
                 
                 for intento in range(max_intentos):
                     try:
-                        # Usamos gemini-3.8-flash que es el modelo requerido por la API actual
+                        # Pausa progresiva entre reintentos o llamadas para respetar los límites de la API gratuita
+                        if intento > 0:
+                            time.sleep(5 * intento)
+
                         response = client.models.generate_content(
                             model='gemini-3.8-flash',
                             contents=prompt,
@@ -107,10 +110,11 @@ else:
                         
                     except Exception as e:
                         if intento < max_intentos - 1:
-                            time.sleep(3 * (intento + 1))
+                            with logs_container:
+                                st.write(f"🔄 Límite alcanzado en {nombre_original}, reintentando en unos segundos... (Intento {intento+1})")
                         else:
                             with logs_container:
-                                st.write(f"⚠️ Error en {nombre_original}: {e}")
+                                st.write(f"⚠️ Error definitivo en {nombre_original}: {e}")
 
                 # Limpieza estricta de caracteres para nombres de carpetas
                 criterio_agrupacion = re.sub(r'[<>:"/\\|?*]', '', proveedor).strip()
@@ -140,7 +144,8 @@ else:
                 st.session_state.albaranes_procesados += 1
                 barra_progreso.progress((idx + 1) / total_archivos)
                 
-                time.sleep(1)
+                # Pausa obligatoria de 4 segundos entre cada archivo para no superar el límite gratuito de la API
+                time.sleep(4)
 
             # Construir filas del CSV final por proveedor
             filas_csv = []
