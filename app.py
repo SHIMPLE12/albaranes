@@ -9,19 +9,18 @@ st.set_page_config(
     page_title="Agrupador de Albaranes por Proveedor", page_icon="📁", layout="wide"
 )
 
-st.title("📄 Agrupador y Lector de Albaranes por Proveedor")
+st.title("📄 Agrupador Inteligente de Albaranes por Proveedor")
 st.write(
-    "Sube tus albaranes en PDF. La app identificará al proveedor, unirá los PDFs correspondientes de cada proveedor en un archivo individual y generará un CSV con los totales (con y sin IVA)."
+    "Sube tus albaranes en PDF. La app detectará el proveedor real, unirá los PDFs correspondientes y generará el CSV."
 )
 
-# Cargar archivos múltiples
 uploaded_files = st.file_uploader(
     "Sube tus albaranes PDF", type=["pdf"], accept_multiple_files=True
 )
 
 
 def extraer_texto_pdf(pdf_file):
-  """Extrae el texto de un PDF."""
+  """Extrae el texto de todas las páginas de un PDF."""
   texto = ""
   try:
     reader = pypdf.PdfReader(pdf_file)
@@ -34,19 +33,49 @@ def extraer_texto_pdf(pdf_file):
   return texto
 
 
-def limpiar_nombre_proveedor(texto):
-  """Intenta extraer el nombre del proveedor de forma limpia desde el texto del albarán."""
-  lineas = [
-      l.strip()
-      for l in texto.split("\n")
-      if l.strip() and len(l.strip()) > 3 and not l.strip().isdigit()
+def limpiar_nombre_proveedor(texto, nombre_archivo):
+  """Detecta de forma inteligente el nombre del proveedor evitando fechas o palabras como 'ENTRADA'."""
+  lineas = [l.strip() for l in texto.split("\n") if l.strip()]
+
+  # Palabras comunes a ignorar si aparecen al inicio del documento
+  ignorar = [
+      "entrada",
+      "albarán",
+      "factura",
+      "fecha",
+      "página",
+      "cliente",
+      "nif",
+      "cif",
   ]
-  if lineas:
-    # Tomamos la primera línea significativa y limpiamos caracteres raros para usarla como nombre de archivo
-    proveedor = lineas[0][:30]
-    proveedor = re.sub(r'[\\/*?:"<>|]', "", proveedor)  # Caracteres no válidos
-    return proveedor.upper().strip()
-  return "PROVEEDOR_DESCONOCIDO"
+
+  proveedor_detectado = ""
+  for linea in lineas[:15]:  # Revisar las primeras 15 líneas
+    linea_lower = linea.lower()
+    # Si la línea es muy corta, es un número o contiene palabras a ignorar, la saltamos
+    if len(linea) < 3 or linea.isdigit():
+      continue
+    if any(palabra in linea_lower for palabra in ignorar):
+      continue
+    # Si tiene formato de fecha (ej: 2026-09-01), saltar
+    if re.search(r"\d{2}[-/]\d{2}[-/]\d{2,4}", linea):
+      continue
+
+    proveedor_detectado = linea
+    break
+
+  # Si no encuentra nada limpio, usamos el nombre del archivo sin extensión ni números largos de fecha
+  if not proveedor_detectado:
+    limpio = re.sub(
+        r"entrada[_\-\s]*\d+[-_\d]*", "", nombre_archivo, flags=re.IGNORECASE
+    )
+    proveedor_detectado = limpio.replace(".pdf", "").strip()
+    if not proveedor_detectado:
+      proveedor_detectado = "PROVEEDOR_GENERAL"
+
+  # Limpiar caracteres no válidos para nombres de archivo y limitar longitud
+  proveedor_limpio = re.sub(r'[\\/*?:"<>|]', "", proveedor_detectado)
+  return proveedor_limpio[:35].upper().strip()
 
 
 def extraer_importes(texto):
@@ -56,7 +85,6 @@ def extraer_importes(texto):
   total = 0.0
   texto_lower = texto.lower()
 
-  # Expresiones regulares para buscar importes
   patron_base = r"(?:base\s*imponible|total\s*s/iva|subtotal|neto)[\s:]*([0-9.,]+)"
   patron_iva = r"(?:cuota\s*iva|iva\s*(?:\d+%)?)[\s:]*([0-9.,]+)"
   patron_total = (
@@ -86,7 +114,6 @@ def extraer_importes(texto):
   if match_total:
     total = limpiar_numero(match_total.group(1))
 
-  # Lógica de respaldo si faltan datos
   if total > 0 and sin_iva == 0:
     sin_iva = round(total / 1.21, 2)
     iva = round(total - sin_iva, 2)
@@ -100,23 +127,27 @@ def extraer_importes(texto):
 if uploaded_files:
   st.success(f"¡{len(uploaded_files)} archivos cargados correctamente!")
 
-  # Diccionarios para agrupar
-  proveedores_data = {}  # Para el CSV y métricas
-  proveedores_pdfs = (
-      {}
-  )  # Para almacenar los objetos PdfMerger / creadores de PDF
+  proveedores_data = {}
+  proveedores_pdfs = {}
+  detalle_procesamiento = []
 
-  # Procesar cada archivo
   for file in uploaded_files:
-    # Guardamos los bytes originales para pypdf
     file_bytes = file.read()
     file.seek(0)
 
     texto = extraer_texto_pdf(io.BytesIO(file_bytes))
-    proveedor = limpiar_nombre_proveedor(texto)
+    proveedor = limpiar_nombre_proveedor(texto, file.name)
     sin_iva, iva, total = extraer_importes(texto)
 
-    # 1. Agrupar datos para el DataFrame / CSV
+    detalle_procesamiento.append({
+        "Archivo Original": file.name,
+        "Proveedor Detectado": proveedor,
+        "Sin IVA (€)": sin_iva,
+        "IVA (€)": iva,
+        "Con IVA (€)": total,
+    })
+
+    # Agrupar datos para CSV
     if proveedor not in proveedores_data:
       proveedores_data[proveedor] = {
           "Total Sin IVA (€)": 0.0,
@@ -130,21 +161,24 @@ if uploaded_files:
     proveedores_data[proveedor]["Total Con IVA (€)"] += total
     proveedores_data[proveedor]["Cantidad Albaranes"] += 1
 
-    # 2. Agrupar PDFs físicos por proveedor
+    # Agrupar páginas físicas en el PDF del proveedor
     if proveedor not in proveedores_pdfs:
       proveedores_pdfs[proveedor] = pypdf.PdfWriter()
 
-    # Añadir páginas del PDF actual al escritor del proveedor correspondiente
     reader = pypdf.PdfReader(io.BytesIO(file_bytes))
     for page in reader.pages:
       proveedores_pdfs[proveedor].add_page(page)
 
-  # --- CREAR DATAFRAME Y CSV ---
+  # Mostrar depuración / qué proveedor detectó cada archivo
+  with st.expander("🔍 Ver qué proveedor detectó la app en cada albarán"):
+    st.dataframe(pd.DataFrame(detalle_procesamiento), use_container_width=True)
+
+  # --- TABLA RESUMEN ---
   lista_filas = []
   for prov, valores in proveedores_data.items():
     lista_filas.append({
         "Proveedor": prov,
-        "Albaranes": valores["Cantidad Albaranes"],
+        "Nº Albaranes": valores["Cantidad Albaranes"],
         "Total Sin IVA (€)": round(valores["Total Sin IVA (€)"], 2),
         "IVA (€)": round(valores["IVA (€)"], 2),
         "Total Con IVA (€)": round(valores["Total Con IVA (€)"], 2),
@@ -152,7 +186,7 @@ if uploaded_files:
 
   df_resultado = pd.DataFrame(lista_filas)
 
-  st.subheader("📊 Resumen por Proveedor (Con y Sin IVA)")
+  st.subheader("📊 Resumen Consolidado por Proveedor")
   st.dataframe(df_resultado, use_container_width=True)
 
   # Descargar CSV
@@ -166,11 +200,11 @@ if uploaded_files:
 
   st.divider()
 
-  # --- CREAR ZIP CON LOS PDFS UNIDOS POR PROVEEDOR ---
+  # --- DESCARGAR ZIP CON PDFS UNIDOS ---
   st.subheader("📦 PDFs Unidos por Proveedor")
   st.write(
-      "Puedes descargar un archivo ZIP que contiene un PDF unificado por cada"
-      " proveedor."
+      "Se ha generado un archivo PDF independiente por cada proveedor que"
+      " agrupa todos sus albaranes."
   )
 
   zip_buffer = io.BytesIO()
@@ -180,14 +214,13 @@ if uploaded_files:
       writer.write(pdf_buffer)
       pdf_bytes = pdf_buffer.getvalue()
 
-      # Añadir cada PDF unificado al ZIP
-      nombre_archivo_pdf = f"{prov.replace(' ', '_')}_unificado.pdf"
+      nombre_archivo_pdf = f"{prov.replace(' ', '_')}_albaranes_unidos.pdf"
       zip_file.writestr(nombre_archivo_pdf, pdf_bytes)
 
   zip_buffer.seek(0)
 
   st.download_button(
-      label="📥 Descargar ZIP con PDFs Unidos por Proveedor",
+      label="📥 Descargar ZIP con PDFs Agrupados por Proveedor",
       data=zip_buffer,
       file_name="albaranes_unidos_por_proveedor.zip",
       mime="application/zip",
