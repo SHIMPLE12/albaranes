@@ -84,9 +84,9 @@ else:
                 
                 for intento in range(max_intentos):
                     try:
-                        # Usamos gemini-2.5-flash compatible plenamente con el nuevo SDK de google-genai
+                        # Usamos gemini-3.8-flash que es el modelo requerido por la API actual
                         response = client.models.generate_content(
-                            model='gemini-2.5-flash',
+                            model='gemini-3.8-flash',
                             contents=prompt,
                             config=types.GenerateContentConfig(
                                 response_mime_type="application/json",
