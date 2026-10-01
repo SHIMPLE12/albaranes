@@ -80,13 +80,13 @@ else:
                 sin_iva = 0.0
                 con_iva = 0.0
                 
-                # Usamos gemini-1.5-flash que tiene un límite gratuito alto de 1500 peticiones diarias
                 max_intentos = 4
                 
                 for intento in range(max_intentos):
                     try:
+                        # Usamos gemini-2.5-flash compatible plenamente con el nuevo SDK de google-genai
                         response = client.models.generate_content(
-                            model='gemini-1.5-flash',
+                            model='gemini-2.5-flash',
                             contents=prompt,
                             config=types.GenerateContentConfig(
                                 response_mime_type="application/json",
