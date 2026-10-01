@@ -45,7 +45,6 @@ else:
         elif st.button("🚀 Procesar y Organizar por Proveedor"):
             client = genai.Client(api_key=api_key)
             
-            # Estructuras para almacenar por cada grupo (proveedor/nif/fecha)
             writers_por_grupo = {}
             datos_por_grupo = {}
             
@@ -61,11 +60,11 @@ else:
                         if t:
                             texto_completo += t + "\n"
                 
-                # Prompt estructurado para extraer con máxima precisión: Proveedor, NIF, Fecha, Sin IVA y Con IVA
+                # Prompt estricto pidiendo exclusivamente el objeto JSON
                 prompt = f"""
-                Analiza el siguiente texto de un albarán comercial y extrae los datos en formato JSON estricto (sin markdown adicional, solo el objeto JSON):
+                Analiza el texto de este albarán y devuelve UNICAMENTE un objeto JSON válido (sin formato markdown, ni bloques de código tipo ```json, solo las llaves {{ }}):
                 {{
-                  "proveedor": "Nombre de la empresa emisora o proveedor (si no lo hay, pon 'Desconocido')",
+                  "proveedor": "Nombre exacto de la empresa emisora o proveedor de arriba del todo (si no lo hay, pon 'Desconocido')",
                   "nif": "NIF o CIF del proveedor (si no lo hay, pon 'Desconocido')",
                   "fecha": "Fecha del albarán en formato DD/MM/YYYY (si no lo hay, pon 'Desconocida')",
                   "importe_sin_iva": 0.00,
@@ -76,42 +75,51 @@ else:
                 {texto_completo}
                 """
                 
+                proveedor = "Desconocido"
+                nif_prov = "Desconocido"
+                fecha_doc = "Desconocida"
+                sin_iva = 0.0
+                con_iva = 0.0
+                
                 try:
                     response = client.models.generate_content(
                         model='gemini-2.5-flash',
                         contents=prompt,
                         config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
                             temperature=0.1
                         ),
                     )
                     
-                    resultado_json = json.loads(response.text)
-                    proveedor = resultado_json.get("proveedor", "Desconocido").strip()
-                    nif_prov = resultado_json.get("nif", "Desconocido").strip()
-                    fecha_doc = resultado_json.get("fecha", "Desconocida").strip()
-                    sin_iva = float(resultado_json.get("importe_sin_iva", 0.0))
-                    con_iva = float(resultado_json.get("importe_con_iva", 0.0))
+                    texto_respuesta = response.text.strip()
+                    # Limpiar posibles marcas de markdown si la IA las añade por error
+                    texto_limpio = re.sub(r'^```json\s*', '', texto_respuesta)
+                    texto_limpio = re.sub(r'^```\s*', '', texto_limpio)
+                    texto_limpio = re.sub(r'\s*```$', '', texto_limpio)
+                    
+                    resultado_json = json.loads(texto_limpio)
+                    proveedor = str(resultado_json.get("proveedor", "Desconocido")).strip()
+                    nif_prov = str(resultado_json.get("nif", "Desconocido")).strip()
+                    fecha_doc = str(resultado_json.get("fecha", "Desconocida")).strip()
+                    sin_iva = float(resultado_json.get("importe_sin_iva", 0.0) or 0.0)
+                    con_iva = float(resultado_json.get("importe_con_iva", 0.0) or 0.0)
                     
                 except Exception as e:
-                    proveedor = "Desconocido"
-                    nif_prov = "Desconocido"
-                    fecha_doc = "Desconocida"
-                    sin_iva = 0.0
-                    con_iva = 0.0
+                    pass
 
-                # Lógica en cascada: Proveedor -> si no, NIF -> si no, Fecha
+                # Criterio de agrupación inteligente en cascada
                 criterio_agrupacion = proveedor
-                if proveedor == "Desconocido" or not proveedor:
-                    if nif_prov != "Desconocido":
+                if not proveedor or proveedor.lower() == "desconocido":
+                    if nif_prov and nif_prov.lower() != "desconocido":
                         criterio_agrupacion = f"NIF_{nif_prov}"
                     else:
                         criterio_agrupacion = f"Fecha_{fecha_doc}"
 
-                # Limpiar caracteres prohibidos para nombres de carpetas y ficheros
+                # Limpiar caracteres prohibidos para carpetas de Windows/Linux
                 criterio_agrupacion = re.sub(r'[<>:"/\\|?*]', '', criterio_agrupacion).strip()
+                if not criterio_agrupacion:
+                    criterio_agrupacion = "Otros_Proveedores"
 
-                # Inicializar el acumulador para este grupo si no existe
+                # Inicializar grupo
                 if criterio_agrupacion not in writers_por_grupo:
                     writers_por_grupo[criterio_agrupacion] = PdfWriter()
                     datos_por_grupo[criterio_agrupacion] = {
@@ -122,11 +130,11 @@ else:
                         "suma_con_iva": 0.0
                     }
 
-                # Añadir el PDF físico al escritor de este grupo específico
+                # Añadir PDF físico al escritor del proveedor correspondiente
                 archivo_subido.seek(0)
                 writers_por_grupo[criterio_agrupacion].append(archivo_subido)
                 
-                # Sumar estadísticas del grupo
+                # Actualizar contadores y sumas
                 datos_por_grupo[criterio_agrupacion]["total_albaranes"] += 1
                 datos_por_grupo[criterio_agrupacion]["suma_sin_iva"] += sin_iva
                 datos_por_grupo[criterio_agrupacion]["suma_con_iva"] += con_iva
@@ -134,7 +142,7 @@ else:
                 st.session_state.albaranes_procesados += 1
                 barra_progreso.progress((idx + 1) / total_archivos)
 
-            # Construir la lista para el DataFrame del CSV resumen
+            # Construir filas del CSV
             filas_csv = []
             for grupo, datos in datos_por_grupo.items():
                 filas_csv.append({
@@ -148,27 +156,23 @@ else:
             df = pd.DataFrame(filas_csv)
             csv_data = df.to_csv(index=False).encode('utf-8')
             
-            # Crear el archivo ZIP organizado con carpetas y PDFs independientes por proveedor
+            # Crear archivo ZIP ordenado por carpetas y PDFs unidos por proveedor
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                # Guardar el CSV general en la raíz del ZIP
                 zip_file.writestr("resumen_general_albaranes.csv", csv_data)
                 
-                # Por cada proveedor, crear su PDF unificado independiente dentro de su carpeta
                 for grupo, writer in writers_por_grupo.items():
                     pdf_output = io.BytesIO()
                     writer.write(pdf_output)
                     pdf_output.seek(0)
                     
-                    # Nombre único para el PDF del proveedor
                     nombre_pdf = f"{grupo}/albaranes_unidos_{grupo}.pdf"
                     zip_file.writestr(nombre_pdf, pdf_output.read())
             
             zip_buffer.seek(0)
 
-            st.success("¡Albaranes agrupados por proveedor, unidos individualmente y calculados con/sin IVA!")
+            st.success("¡Proceso completado! Proveedores separados y PDFs unidos correctamente.")
             
-            # Botón de descarga del ZIP completo
             st.download_button(
                 label="📦 Descargar Paquete ZIP Organizado",
                 data=zip_buffer,
