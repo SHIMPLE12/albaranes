@@ -12,14 +12,14 @@ LIMITE_GRATUITO = 15
 if 'albaranes_procesados' not in st.session_state:
     st.session_state.albaranes_procesados = 0
 
-st.title("🤖 Procesador de Albaranes: Unir PDFs por Proveedor")
+st.title("🤖 Procesador de Albaranes: PDFs Separados por Proveedor")
 
 # --- BARRA LATERAL ---
 st.sidebar.header("Configuración")
 st.sidebar.info(f"Has usado {st.session_state.albaranes_procesados} de {LIMITE_GRATUITO} albaranes este mes.")
 
 st.sidebar.markdown("---")
-st.sidebar.info("ℹ️ Este sistema agrupa y une los albaranes de forma independiente **por cada proveedor detectado**.")
+st.sidebar.info("ℹ️ Cada proveedor tendrá su propia carpeta y un único PDF que unirá **únicamente** sus respectivos albaranes.")
 
 if st.session_state.albaranes_procesados >= LIMITE_GRATUITO:
     st.error("Has alcanzado el límite de tu plan gratuito (15 albaranes).")
@@ -28,14 +28,14 @@ else:
     archivos_subidos = st.file_uploader("Sube tus archivos PDF de albaranes aquí", type=["pdf"], accept_multiple_files=True)
     
     if archivos_subidos:
-        if st.button("🚀 Unir PDFs por Proveedor y Calcular Resumen"):
+        if st.button("🚀 Generar PDFs independientes por Proveedor"):
             writers_por_proveedor = {}
             datos_por_proveedor = {}
             
             barra_progreso = st.progress(0)
             total_archivos = len(archivos_subidos)
             
-            logs_container = st.expander("🔍 Ver detalles de agrupación por proveedor", expanded=True)
+            logs_container = st.expander("🔍 Ver detalles de separación por proveedor", expanded=True)
             
             for idx, archivo_subido in enumerate(archivos_subidos):
                 texto_completo = ""
@@ -48,19 +48,27 @@ else:
                         if t:
                             texto_completo += t + "\n"
                 
-                # Detección inteligente del proveedor de forma local
-                proveedor = "Proveedor_Generico"
+                # Detección inteligente mejorada del proveedor
+                proveedor = ""
                 nif_prov = "Desconocido"
                 con_iva = 0.0
                 
+                # Buscar palabras clave comunes de proveedores en el texto o usar el nombre del archivo si falla
                 lineas = [l.strip() for l in texto_completo.split('\n') if l.strip()]
                 
-                # Buscar el nombre del proveedor en las primeras líneas
-                if lineas:
-                    posibles_proveedores = [l for l in lineas[:5] if len(l) > 3 and not re.search(r'\d{2}/\d{2}/\d{4}', l)]
-                    if posibles_proveedores:
-                        proveedor = posibles_proveedores[0][:30].title()
+                # Intentar buscar la primera línea relevante que no sea numérica ni fechas
+                for linea in lineas[:8]:
+                    linea_limpia = linea.strip()
+                    if len(linea_limpia) > 3 and not re.search(r'\d{2}/\d{2}/\d{4}', linea_limpia) and not linea_limpia.lower().startswith(('albaran', 'factura', 'fecha', 'pag:', 'cliente')):
+                        proveedor = linea_limpia[:25]
+                        break
                 
+                # Si no se encuentra en el texto, intentamos sacarlo del nombre del archivo subido
+                if not proveedor or len(proveedor) < 3:
+                    nombre_sin_ext = re.sub(r'\.pdf$', '', nombre_original, flags=re.IGNORECASE)
+                    partes = re.split(r'[_-\s]+', nombre_sin_ext)
+                    proveedor = partes[0] if partes else "Proveedor_Generico"
+
                 # Buscar NIF/CIF
                 match_nif = re.search(r'([A-Z]\d{7,8}[A-Z0-9]|\d{8}[A-Z])', texto_completo, re.IGNORECASE)
                 if match_nif:
@@ -77,13 +85,13 @@ else:
                 
                 sin_iva = round(con_iva / 1.21, 2)
 
-                # Limpieza estricta de caracteres para nombres de carpetas y archivos
-                proveedor_limpio = re.sub(r'[<>:"/\\|?*]', '', proveedor).strip()
-                if not proveedor_limpio or proveedor_limpio.lower() in ["desconocido", "none", "null", "proveedor_generico"]:
-                    proveedor_limpio = "Otros_Proveedores"
+                # Limpieza estricta de caracteres para nombres de carpetas
+                proveedor_limpio = re.sub(r'[<>:"/\\|?*]', '', proveedor).strip().title()
+                if not proveedor_limpio or proveedor_limpio.lower() in ["desconocido", "none", "null", "proveedor_generico", "albaran"]:
+                    proveedor_limpio = f"Proveedor_{idx+1}"
 
                 with logs_container:
-                    st.write(f"📁 **{nombre_original}** asignado al proveedor: `{proveedor_limpio}` (Total: {con_iva}€)")
+                    st.write(f"📁 Archivo: `{nombre_original}` ➡️️ Asignado al proveedor: **{proveedor_limpio}**")
 
                 # 2. Inicializar el escritor PDF para este proveedor específico si no existe
                 if proveedor_limpio not in writers_por_proveedor:
@@ -96,7 +104,7 @@ else:
                         "suma_con_iva": 0.0
                     }
 
-                # 3. Añadir este albarán al PDF unificado de su proveedor correspondiente
+                # 3. Añadir este albarán UNICAMENTE al PDF de su proveedor correspondiente
                 archivo_subido.seek(0)
                 writers_por_proveedor[proveedor_limpio].append(archivo_subido)
                 
@@ -122,29 +130,28 @@ else:
             df = pd.DataFrame(filas_csv)
             csv_data = df.to_csv(index=False).encode('utf-8')
             
-            # 4. Crear el ZIP organizado por carpetas con un PDF unificado por cada proveedor
+            # 4. Crear el ZIP con carpetas independientes y un PDF por cada proveedor
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                # Guardar el CSV general en la raíz del ZIP
+                # Guardar el CSV general
                 zip_file.writestr("resumen_general_albaranes.csv", csv_data)
                 
-                # Guardar un PDF unificado por cada proveedor dentro de su respectiva carpeta
+                # Guardar un PDF único e independiente por cada proveedor
                 for prov, writer in writers_por_proveedor.items():
                     pdf_output = io.BytesIO()
                     writer.write(pdf_output)
                     pdf_output.seek(0)
                     
-                    # Nombre del PDF unificado dentro de la carpeta del proveedor
-                    nombre_archivo_en_zip = f"{prov}/albaranes_unidos_{prov}.pdf"
+                    nombre_archivo_en_zip = f"{prov}/albaranes_{prov}.pdf"
                     zip_file.writestr(nombre_archivo_en_zip, pdf_output.read())
             
             zip_buffer.seek(0)
 
-            st.success("¡Proceso completado con éxito! Se han unido los albaranes exclusivamente por cada proveedor.")
+            st.success("¡Proceso completado! Cada proveedor tiene ahora su propio PDF unificado de forma independiente.")
             
             st.download_button(
-                label="📦 Descargar ZIP con Albaranes Unidos por Proveedor",
+                label="📦 Descargar ZIP con PDFs Separados por Proveedor",
                 data=zip_buffer,
-                file_name="albaranes_unidos_por_proveedor.zip",
+                file_name="albaranes_separados_por_proveedor.zip",
                 mime="application/zip"
             )
