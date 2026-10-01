@@ -11,7 +11,7 @@ st.set_page_config(
 
 st.title("📄 Gestor de Albaranes por Proveedor")
 st.write(
-    "Sube tus albaranes. La app los agrupa y unifica automáticamente por proveedor en archivos PDF. Para garantizar el **100% de precisión** en los totales e IVA (evitando que el lector automático falle con diseños complejos), introduce los importes directamente en la tabla."
+    "Sube tus albaranes. La app los agrupa y unifica automáticamente por proveedor en archivos PDF. Introduce el **Total (€)** de cada albarán directamente en la tabla de forma rápida y sencilla."
 )
 
 uploaded_files = st.file_uploader(
@@ -87,13 +87,11 @@ if uploaded_files:
     texto = extraer_texto_pdf(io.BytesIO(file_bytes))
     proveedor = limpiar_nombre_proveedor(texto, file.name)
 
-    # Inicializamos los importes a 0 para que los rellenes con precisión absoluta
+    # Solo guardamos Proveedor, Archivo y el Total (€)
     detalle_albaranes.append({
         "Proveedor": proveedor,
         "Archivo": file.name,
-        "Total Sin IVA (€)": 0.0,
-        "IVA (€)": 0.0,
-        "Total Con IVA (€)": 0.0,
+        "Total (€)": 0.0,
     })
 
     # Agrupar páginas físicas en el PDF unificado del proveedor
@@ -108,22 +106,16 @@ if uploaded_files:
 
   st.subheader("✏️ Introduce los Totales Reales")
   st.write(
-      "Para garantizar que el CSV tenga los totales **100% perfectos**, introduce"
-      " o verifica las cifras de cada albarán directamente en esta tabla."
+      "Introduce o verifica el importe total de cada albarán directamente en"
+      " esta tabla."
   )
 
-  # Tabla interactiva totalmente editable
+  # Tabla interactiva totalmente editable con una sola columna de importe
   df_editado = st.data_editor(df_albaranes, use_container_width=True, num_rows="fixed")
 
   # --- RESUMEN CONSOLIDADO POR PROVEEDOR ---
   st.subheader("📊 Resumen Consolidado por Proveedor (Para el CSV)")
-  df_resumen = (
-      df_editado.groupby("Proveedor")[
-          ["Total Sin IVA (€)", "IVA (€)", "Total Con IVA (€)"]
-      ]
-      .sum()
-      .reset_index()
-  )
+  df_resumen = df_editado.groupby("Proveedor")[["Total (€)"]].sum().reset_index()
   conteo = df_editado.groupby("Proveedor").size().reset_index(name="Nº Albaranes")
   df_resumen = pd.merge(conteo, df_resumen, on="Proveedor")
 
