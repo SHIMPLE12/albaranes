@@ -6,14 +6,14 @@ import pypdf
 import streamlit as st
 
 st.set_page_config(
-    page_title="Lector Super Estricto de Albaranes",
+    page_title="Gestor de Albaranes 100% Preciso",
     page_icon="📄",
     layout="wide",
 )
 
-st.title("🤖 Lector Super Estricto de Albaranes por Proveedor")
+st.title("🎯 Gestor y Validador 100% Preciso de Albaranes")
 st.write(
-    "Agrupa perfectamente por proveedor y utiliza el motor de extracción super estricto para los totales y el IVA. Puedes editar cualquier cifra en la tabla si lo necesitas."
+    "Agrupa los PDFs por proveedor de forma perfecta. Dado que cada albarán tiene un diseño único, utiliza la vista previa de texto y la tabla editable para asegurar que los totales y IVAs sean 100% correctos antes de descargar tu CSV."
 )
 
 uploaded_files = st.file_uploader(
@@ -36,7 +36,7 @@ def extraer_texto_pdf(pdf_file):
 
 
 def limpiar_nombre_proveedor(texto, nombre_archivo):
-  """Detecta de forma estricta el nombre del proveedor en la cabecera."""
+  """Detecta el nombre del proveedor en la cabecera."""
   lineas = [l.strip() for l in texto.split("\n") if l.strip()]
   ignorar = [
       "entrada",
@@ -60,7 +60,6 @@ def limpiar_nombre_proveedor(texto, nombre_archivo):
       continue
     if re.search(r"\d{2}[-/]\d{2}[-/]\d{2,4}", linea):
       continue
-
     proveedor_detectado = linea
     break
 
@@ -72,12 +71,12 @@ def limpiar_nombre_proveedor(texto, nombre_archivo):
     if not proveedor_detectado:
       proveedor_detectado = "PROVEEDOR_GENERAL"
 
-  proveedor_limpio = re.sub(r'[\\/*?:"<>|]', "", proveedor_detectado)
-  return proveedor_limpio[:35].upper().strip()
+  return (
+      re.sub(r'[\\/*?:"<>|]', "", proveedor_detectado)[:35].upper().strip()
+  )
 
 
 def limpiar_numero(val_str):
-  """Convierte un string numérico con formato europeo o estándar a float de forma segura."""
   try:
     val_str = (
         val_str.replace("€", "")
@@ -98,101 +97,80 @@ def limpiar_numero(val_str):
     return 0.0
 
 
-def extraccion_super_estricta(texto):
-  """Motor de extracción super estricto (versión anterior de máxima precisión en totales)."""
-  sin_iva = 0.0
-  iva = 0.0
-  total = 0.0
-
+def extraccion_avanzada(texto):
+  """Extracción orientada a capturar cifras del documento."""
+  sin_iva, iva, total = 0.0, 0.0, 0.0
   lineas = [l.strip() for l in texto.split("\n") if l.strip()]
   if not lineas:
     return 0.0, 0.0, 0.0
 
-  # Patrón estricto para capturar cifras monetarias con decimales obligatorios (ej: 12,34 o 1.234,56)
   patron_monto = r"\b\d{1,3}(?:\.\d{3})*,\d{2}\b|\b\d+,\d{2}\b|\b\d+\.\d{2}\b"
-
-  # Recorremos el documento priorizando las ÚLTIMAS 25 líneas (donde siempre están los totales)
   bloque_final = " \n ".join(lineas[-25:]) if len(lineas) >= 25 else " \n ".join(lineas)
   bloque_final_lower = bloque_final.lower()
 
-  # 1. BÚSQUEDA DEL TOTAL CON IVA
-  palabras_total = [
+  # Búsqueda de total
+  for palabra in [
       "total a pagar",
       "importe total",
       "total factura",
       "total albarán",
       "líquido",
       "a pagar",
-      "total general",
-      "total:",
       "total",
-  ]
-  for palabra in palabras_total:
+  ]:
     if palabra in bloque_final_lower:
-      idx = bloque_final_lower.find(palabra)
-      sub_texto = bloque_final[idx : idx + 60]
-      montos = re.findall(patron_monto, sub_texto)
+      idx = bloque_final_lower.rfind(palabra)
+      sub = bloque_final[idx : idx + 60]
+      montos = re.findall(patron_monto, sub)
       if montos:
         total = limpiar_numero(montos[-1])
         break
 
-  # Si no lo halló con palabras exactas, tomamos el número con decimales más alto del final
   if total == 0.0:
-    todos_montos = [limpiar_numero(m) for m in re.findall(patron_monto, bloque_final)]
-    todos_montos = [m for m in todos_montos if 0.01 < m < 100000]
-    if todos_montos:
-      total = max(todos_montos)
+    todos = [limpiar_numero(m) for m in re.findall(patron_monto, bloque_final)]
+    todos = [m for m in todos if 0.01 < m < 100000]
+    if todos:
+      total = max(todos)
 
-  # 2. BÚSQUEDA DE LA BASE IMPONIBLE (SIN IVA)
-  palabras_base = [
+  # Búsqueda base
+  for palabra in [
       "base imponible",
       "total s/iva",
       "subtotal",
       "neto",
       "gravable",
-      "importe neto",
       "suma",
-  ]
-  for palabra in palabras_base:
+  ]:
     if palabra in bloque_final_lower:
       idx = bloque_final_lower.find(palabra)
-      sub_texto = bloque_final[idx : idx + 60]
-      montos = re.findall(patron_monto, sub_texto)
+      sub = bloque_final[idx : idx + 60]
+      montos = re.findall(patron_monto, sub)
       if montos:
         sin_iva = limpiar_numero(montos[0])
         break
 
-  # 3. BÚSQUEDA DE LA CUOTA DE IVA
-  palabras_iva = ["cuota iva", "iva (", "iva %", "impuestos", "IVA", "I.V.A."]
-  for palabra in palabras_iva:
-    if palabra.lower() in bloque_final_lower:
-      idx = bloque_final_lower.lower().find(palabra.lower())
-      sub_texto = bloque_final[idx : idx + 60]
-      montos = re.findall(patron_monto, sub_texto)
-      montos_filtrados = [
+  # Búsqueda IVA
+  for palabra in ["cuota iva", "iva (", "iva %", "impuestos", "iva"]:
+    if palabra in bloque_final_lower:
+      idx = bloque_final_lower.find(palabra)
+      sub = bloque_final[idx : idx + 60]
+      montos = re.findall(patron_monto, sub)
+      filtrados = [
           m
           for m in montos
           if limpiar_numero(m) not in [21.0, 10.0, 4.0, 21, 10, 4]
       ]
-      if montos_filtrados:
-        iva = limpiar_numero(montos_filtrados[0])
+      if filtrados:
+        iva = limpiar_numero(filtrados[0])
         break
 
-  # --- VALIDACIÓN MATEMÁTICA Y CRUCE DE DATOS ---
+  # Consistencia
   if total > 0.0 and sin_iva == 0.0:
-    if iva > 0.0:
-      sin_iva = round(total - iva, 2)
-    else:
-      sin_iva = round(total / 1.21, 2)
-      iva = round(total - sin_iva, 2)
-  elif sin_iva > 0.0 and total == 0.0:
-    if iva == 0.0:
-      iva = round(sin_iva * 0.21, 2)
-    total = round(sin_iva + iva, 2)
-  elif sin_iva > 0.0 and iva > 0.0 and total == 0.0:
-    total = round(sin_iva + iva, 2)
-  elif total > 0.0 and sin_iva > 0.0 and iva == 0.0:
+    sin_iva = round(total / 1.21, 2)
     iva = round(total - sin_iva, 2)
+  elif sin_iva > 0.0 and total == 0.0:
+    iva = round(sin_iva * 0.21, 2)
+    total = round(sin_iva + iva, 2)
 
   return round(sin_iva, 2), round(iva, 2), round(total, 2)
 
@@ -202,14 +180,19 @@ if uploaded_files:
 
   proveedores_pdfs = {}
   detalle_albaranes = []
+  textos_originales = {}
 
   for file in uploaded_files:
     file_bytes = file.read()
     file.seek(0)
 
     texto = extraer_texto_pdf(io.BytesIO(file_bytes))
+    textos_originales[file.name] = (
+        texto  # Guardamos el texto para poder visualizarlo
+    )
+
     proveedor = limpiar_nombre_proveedor(texto, file.name)
-    sin_iva, iva, total = extraccion_super_estricta(texto)
+    sin_iva, iva, total = extraccion_avanzada(texto)
 
     detalle_albaranes.append({
         "Proveedor": proveedor,
@@ -219,7 +202,6 @@ if uploaded_files:
         "Total Con IVA (€)": total,
     })
 
-    # Agrupar páginas físicas en el PDF unificado del proveedor
     if proveedor not in proveedores_pdfs:
       proveedores_pdfs[proveedor] = pypdf.PdfWriter()
 
@@ -229,14 +211,31 @@ if uploaded_files:
 
   df_albaranes = pd.DataFrame(detalle_albaranes)
 
-  st.subheader("✏️ Validación y Corrección (Edita cualquier celda si lo necesitas)")
+  st.subheader(
+      "✏️ Validación Interactiva (Edita las celdas para garantizar el 100%"
+      " de precisión)"
+  )
   st.write(
-      "Revisa los importes. Si algún albarán requiere un ajuste, haz clic sobre"
-      " la celda para corregirlo."
+      "Haz clic en cualquier celda de la tabla para corregir el importe si es"
+      " necesario."
   )
 
-  # Tabla interactiva editable
+  # Tabla editable
   df_editado = st.data_editor(df_albaranes, use_container_width=True, num_rows="fixed")
+
+  # Opcional: Ver el texto extraído de un albarán específico para contrastar cifras
+  with st.expander(
+      "🔍 Ver el texto interno de los PDFs (para comprobar los importes reales)"
+  ):
+    archivo_seleccionado = st.selectbox(
+        "Selecciona un albarán para ver su texto:", list(textos_originales.keys())
+    )
+    if archivo_seleccionado:
+      st.text_area(
+          "Texto leído del PDF:",
+          textos_originales[archivo_seleccionado],
+          height=200,
+      )
 
   # --- RESUMEN CONSOLIDADO POR PROVEEDOR ---
   st.subheader("📊 Resumen Consolidado por Proveedor (Para el CSV)")
@@ -252,7 +251,7 @@ if uploaded_files:
 
   st.dataframe(df_resumen, use_container_width=True)
 
-  # Opciones de descarga CSV
+  # Descarga CSV
   tipo_csv = st.radio(
       "Selecciona el formato del CSV a descargar:",
       [
@@ -270,7 +269,7 @@ if uploaded_files:
     nombre_csv = "detalle_albaranes_completo.csv"
 
   st.download_button(
-      label="📥 Descargar CSV",
+      label="📥 Descargar CSV Definitivo",
       data=csv_data,
       file_name=nombre_csv,
       mime="text/csv",
