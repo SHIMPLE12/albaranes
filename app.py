@@ -80,13 +80,15 @@ else:
                 sin_iva = 0.0
                 con_iva = 0.0
                 
-                max_intentos = 5
+                max_intentos = 4
                 
                 for intento in range(max_intentos):
                     try:
-                        # Pausa progresiva entre reintentos o llamadas para respetar los límites de la API gratuita
+                        # Si es un reintento por límite, esperamos 20 segundos obligatorios
                         if intento > 0:
-                            time.sleep(5 * intento)
+                            with logs_container:
+                                st.write(f"⏳ Pausa de protección por límite (429) en {nombre_original}... Esperando 20 segundos (Intento {intento})")
+                            time.sleep(20)
 
                         response = client.models.generate_content(
                             model='gemini-3.8-flash',
@@ -109,12 +111,9 @@ else:
                         break
                         
                     except Exception as e:
-                        if intento < max_intentos - 1:
+                        if intento == max_intentos - 1:
                             with logs_container:
-                                st.write(f"🔄 Límite alcanzado en {nombre_original}, reintentando en unos segundos... (Intento {intento+1})")
-                        else:
-                            with logs_container:
-                                st.write(f"⚠️ Error definitivo en {nombre_original}: {e}")
+                                st.write(f"⚠️️ No se pudo procesar {nombre_original} con IA (Límite agotado). Usando valores por defecto.")
 
                 # Limpieza estricta de caracteres para nombres de carpetas
                 criterio_agrupacion = re.sub(r'[<>:"/\\|?*]', '', proveedor).strip()
@@ -144,8 +143,9 @@ else:
                 st.session_state.albaranes_procesados += 1
                 barra_progreso.progress((idx + 1) / total_archivos)
                 
-                # Pausa obligatoria de 4 segundos entre cada archivo para no superar el límite gratuito de la API
-                time.sleep(4)
+                # Pausa estricta de 12 segundos entre cada albarán para garantizar que jamás salte el límite de peticiones por minuto
+                if idx < total_archivos - 1:
+                    time.sleep(12)
 
             # Construir filas del CSV final por proveedor
             filas_csv = []
