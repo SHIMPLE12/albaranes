@@ -16,7 +16,7 @@ st.title("🤖 Gestor y Lector IA de Albaranes (Powered by Gemini)")
 st.write(
     "Automatiza tu negocio. Sube los albaranes y la Inteligencia Artificial de"
     " Google Gemini extraerá automáticamente los datos y unificará los"
-    " documents por proveedor."
+    " documentos por proveedor."
 )
 
 # --- BARRA LATERAL PARA CONFIGURAR LA API KEY ---
@@ -46,8 +46,8 @@ uploaded_files = st.file_uploader(
 def extraer_datos_con_gemini(pdf_bytes, api_key):
     """Envía el PDF nativamente a Gemini para extraer los datos de forma infalible."""
     genai.configure(api_key=api_key)
-    # Usamos Gemini Flash con soporte nativo de documentos PDF
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    # Actualizado al modelo estándar compatible con la API actual de Google
+    model = genai.GenerativeModel("gemini-2.5-flash")
 
     prompt = (
         "Analiza este documento PDF comercial (albarán o factura). Extrae"
