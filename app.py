@@ -3,7 +3,6 @@ import json
 import re
 import zipfile
 import google.generativeai as genai
-from pdf2image import convert_from_bytes
 import pandas as pd
 import pypdf
 import streamlit as st
@@ -45,11 +44,11 @@ uploaded_files = st.file_uploader(
 
 
 def extraer_datos_con_gemini(pdf_bytes, api_key):
-    """Extrae datos intentando primero texto rápido y usando visión si es necesario."""
+    """Extrae el texto digital del PDF y se lo envía a Gemini para una lectura precisa."""
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-3.8-flash")
 
-    # 1. Intentar extraer texto directamente (ultrarrapido)
+    # Extraer texto del PDF digital
     reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
     texto_pdf = ""
     for page in reader.pages:
@@ -57,27 +56,23 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
         if t:
             texto_pdf += t + "\n"
 
+    if not texto_pdf.strip():
+        return None
+
     prompt = (
-        "Analiza este documento comercial (albarán o factura). Extrae estrictamente"
-        " en formato JSON puro, sin explicaciones ni bloques markdown de código"
-        " (nada de ```json), exactamente con estas 4 claves:\n"
+        "Analiza el siguiente texto extraído de un albarán o factura comercial."
+        " Extrae estrictamente en formato JSON puro, sin explicaciones ni"
+        " bloques markdown de código (nada de ```json), exactamente con estas 4"
+        " claves:\n"
         '{"proveedor": "Nombre de la empresa emisora", "cif": "NIF o CIF o vacio", '
-        '"fecha": "DD/MM/AAAA o vacio", "total": 0.0}'
+        '"fecha": "DD/MM/AAAA o vacio", "total": 0.0}\n\nTexto del'
+        f" documento:\n{texto_pdf[:4000]}"
     )
 
-    # Si hay texto disponible, se lo enviamos al modelo de texto
-    if len(texto_pdf.strip()) > 30:
-        response = model.generate_content(
-            [prompt, "\nTexto del documento:\n" + texto_pdf[:3000]]
-        )
-    else:
-        # Si es un PDF escaneado (sin texto digital), usamos visión rápida (DPI bajo de 100)
-        imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=100)
-        if not imagenes:
-            return None
-        response = model.generate_content([prompt, imagenes[0]])
-
+    response = model.generate_content(prompt)
     texto_respuesta = response.text.strip()
+
+    # Limpiar posibles marcas de formato markdown
     texto_respuesta = re.sub(r"^```json\s*", "", texto_respuesta)
     texto_respuesta = re.sub(r"^```\s*", "", texto_respuesta)
     texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
@@ -162,7 +157,7 @@ if uploaded_files:
 
             st.session_state["df_albaranes"] = pd.DataFrame(detalle_albaranes)
             st.session_state["proveedores_pdfs"] = proveedores_pdfs
-            st.success("¡Procesamiento inteligente completado con éxito!")
+            st.success("¡Procesamiento completado con éxito!")
 
     if "df_albaranes" in st.session_state:
         st.subheader("✏️ Validación y Corrección (Datos extraídos por la IA)")
