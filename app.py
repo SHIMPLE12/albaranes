@@ -45,201 +45,201 @@ uploaded_files = st.file_uploader(
 
 
 def extraer_datos_con_gemini(pdf_bytes, api_key):
-  """Envía el albarán convertido en imagen a Gemini para que extraiga los datos clave."""
-  try:
-    genai.configure(api_key=api_key)
-    # Usamos Gemini Flash (rápido, económico e ideal para visión de documentos)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    """Envía el albarán convertido en imagen a Gemini para que extraiga los datos clave."""
+    try:
+        genai.configure(api_key=api_key)
+        # Usamos Gemini Flash (rápido, económico e ideal para visión de documentos)
+        model = genai.GenerativeModel("gemini-1.5-flash")
 
-    # Convertir la primera página del PDF en imagen para que la IA la "vea"
-    imagenes = convert_from_bytes(
-        pdf_bytes, first_page=1, last_page=1, dpi=200
-    )
-    if not imagenes:
-      return None
+        # Convertir la primera página del PDF en imagen para que la IA la "vea"
+        imagenes = convert_from_bytes(
+            pdf_bytes, first_page=1, last_page=1, dpi=200
+        )
+        if not imagenes:
+            return None
 
-    imagen_pil = imagenes[0]
+        imagen_pil = imagenes[0]
 
-    prompt = (
-        "Analiza este documento comercial (albarán o factura). Extrae "
-        "estrictamente en formato JSON plano (sin bloques markdown adicionales"
-        " como ```json) los siguientes 4 campos:\n"
-        '1. "proveedor": Nombre de la empresa emisora o proveedor.\n'
-        '2. "cif": NIF o CIF del proveedor (si aparece, si no pon "").\n'
-        '3. "fecha": Fecha del documento en formato DD/MM/AAAA (si no, "").\n'
-        '4. "total": El importe total a pagar en número decimal (ejemplo: 154.50).'
-        " Si no encuentras el total, pon 0.0."
-    )
+        prompt = (
+            "Analiza este documento comercial (albarán o factura). Extrae "
+            "estrictamente en formato JSON plano (sin bloques markdown adicionales"
+            " como ```json) los siguientes 4 campos:\n"
+            '1. "proveedor": Nombre de la empresa emisora o proveedor.\n'
+            '2. "cif": NIF o CIF del proveedor (si aparece, si no pon "").\n'
+            '3. "fecha": Fecha del documento en formato DD/MM/AAAA (si no, "").\n'
+            '4. "total": El importe total a pagar en número decimal (ejemplo: 154.50).'
+            " Si no encuentras el total, pon 0.0."
+        )
 
-    response = model.generate_content([prompt, imagen_pil])
-    texto_respuesta = response.text.strip()
+        response = model.generate_content([prompt, imagen_pil])
+        texto_respuesta = response.text.strip()
 
-    # Limpiar posibles marcas de formato markdown de la respuesta de la IA
-    texto_respuesta = re.sub(r"^```json\s*", "", texto_respuesta)
-    texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
+        # Limpiar posibles marcas de formato markdown de la respuesta de la IA
+        texto_respuesta = re.sub(r"^```json\s*", "", texto_respuesta)
+        texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
 
-    datos = json.loads(texto_respuesta)
-    return datos
-  except Exception as e:
-    # Si falla la IA por cualquier motivo, devolvemos valores por defecto
-    return None
+        datos = json.loads(texto_respuesta)
+        return datos
+    except Exception as e:
+        # Si falla la IA por cualquier motivo, devolvemos None para gestionarlo de forma segura
+        return None
 
 
 if uploaded_files:
-  if not api_key_input:
-    st.error(
-        "⚠️ Por favor, introduce tu Clave API de Gemini en la barra lateral"
-        " izquierda para que la inteligencia artificial pueda leer los"
-        " albaranes."
-    )
-  else:
-    st.success(
-        f"¡{len(uploaded_files)} archivos listos para ser procesados por la IA!"
-    )
+    if not api_key_input:
+        st.error(
+            "⚠️ Por favor, introduce tu Clave API de Gemini en la barra lateral"
+            " izquierda para que la inteligencia artificial pueda leer los"
+            " albaranes."
+        )
+    else:
+        st.success(
+            f"¡{len(uploaded_files)} archivos listos para ser procesados por la IA!"
+        )
 
-    if st.button(
-        "🚀 Procesar Albaranes con Inteligencia Artificial",
-        type="primary",
-    ):
-      proveedores_pdfs = {}
-      detalle_albaranes = []
+        if st.button(
+            "🚀 Procesar Albaranes con Inteligencia Artificial",
+            type="primary",
+        ):
+            proveedores_pdfs = {}
+            detalle_albaranes = []
 
-      barra_progreso = st.progress(0)
-      total_archivos = len(uploaded_files)
+            barra_progreso = st.progress(0)
+            total_archivos = len(uploaded_files)
 
-      for i, file in enumerate(uploaded_files):
-        file_bytes = file.read()
-        file.seek(0)
+            for i, file in enumerate(uploaded_files):
+                file_bytes = file.read()
+                file.seek(0)
 
-        # 1. Llamada a Gemini para extraer datos automáticamente
-        resultado_ia = extraer_datos_con_gemini(file_bytes, api_key_input)
+                # 1. Llamada a Gemini para extraer datos automáticamente
+                resultado_ia = extraer_datos_con_gemini(file_bytes, api_key_input)
 
-        if resultado_ia:
-          proveedor = (
-              str(resultado_ia.get("proveedor", "PROVEEDOR_GENERAL"))
-              .upper()
-              .strip()
-          )
-          proveedor = re.sub(r'[\\/*?:"<>|]', "", proveedor)[:35]
-          if not proveedor:
-            proveedor = "PROVEEDOR_GENERAL"
+                if resultado_ia:
+                    proveedor = (
+                        str(resultado_ia.get("proveedor", "PROVEEDOR_GENERAL"))
+                        .upper()
+                        .strip()
+                    )
+                    proveedor = re.sub(r'[\\/*?:"<>|]', "", proveedor)[:35]
+                    if not proveedor:
+                        proveedor = "PROVEEDOR_GENERAL"
 
-          cif = str(resultado_ia.get("cif", ""))
-          fecha = str(resultado_ia.get("fecha", ""))
-          try:
-            total = float(resultado_ia.get("total", 0.0))
-          except:
-            total = 0.0
-        else:
-          proveedor = "PROVEEDOR_GENERAL"
-          cif = ""
-          fecha = ""
-          total = 0.0
+                    cif = str(resultado_ia.get("cif", ""))
+                    fecha = str(resultado_ia.get("fecha", ""))
+                    try:
+                        total = float(resultado_ia.get("total", 0.0))
+                    except:
+                        total = 0.0
+                else:
+                    proveedor = "PROVEEDOR_GENERAL"
+                    cif = ""
+                    fecha = ""
+                    total = 0.0
 
-        detalle_albaranes.append({
-            "Proveedor": proveedor,
-            "CIF": cif,
-            "Fecha": fecha,
-            "Archivo": file.name,
-            "Total (€)": round(total, 2),
-        })
+                detalle_albaranes.append({
+                    "Proveedor": proveedor,
+                    "CIF": cif,
+                    "Fecha": fecha,
+                    "Archivo": file.name,
+                    "Total (€)": round(total, 2),
+                })
 
-        # 2. Agrupar páginas físicas en el PDF unificado del proveedor
-        if proveedor not in proveedores_pdfs:
-          proveedores_pdfs[proveedor] = pypdf.PdfWriter()
+                # 2. Agrupar páginas físicas en el PDF unificado del proveedor
+                if proveedor not in proveedores_pdfs:
+                    proveedores_pdfs[proveedor] = pypdf.PdfWriter()
 
-        reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-        for page in reader.pages:
-          proveedores_pdfs[proveedor].add_page(page)
+                reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+                for page in reader.pages:
+                    proveedores_pdfs[proveedor].add_page(page)
 
-        # Actualizar barra de progreso
-        barra_progreso.progress((i + 1) / total_archivos)
+                # Actualizar barra de progreso
+                barra_progreso.progress((i + 1) / total_archivos)
 
-      st.session_state["df_albaranes"] = pd.DataFrame(detalle_albaranes)
-      st.session_state["proveedores_pdfs"] = proveedores_pdfs
-      st.success("¡Procesamiento completado con éxito por la IA!")
+            st.session_state["df_albaranes"] = pd.DataFrame(detalle_albaranes)
+            st.session_state["proveedores_pdfs"] = proveedores_pdfs
+            st.success("¡Procesamiento completado con éxito por la IA!")
 
     # Si ya se procesaron los datos, mostramos los resultados y opciones de descarga
     if "df_albaranes" in st.session_state:
-      st.subheader("✏️ Validación y Corrección (Datos extraídos por la IA)")
-      st.write(
-          "La IA ha rellenado los campos automáticamente. Puedes verificar o"
-          " corregir cualquier dato directamente en la tabla si lo necesitas."
-      )
-
-      df_editado = st.data_editor(
-          st.session_state["df_albaranes"],
-          use_container_width=True,
-          num_rows="fixed",
-      )
-
-      # --- RESUMEN CONSOLIDADO POR PROVEEDOR ---
-      st.subheader(
-          "📊 Resumen Consolidado por Proveedor (Listo para Contabilidad)"
-      )
-      df_resumen = (
-          df_editado.groupby("Proveedor")[["Total (€)"]].sum().reset_index()
-      )
-      conteo = (
-          df_editado.groupby("Proveedor")
-          .size()
-          .reset_index(name="Nº Albaranes")
-      )
-      df_resumen = pd.merge(conteo, df_resumen, on="Proveedor")
-
-      st.dataframe(df_resumen, use_container_width=True)
-
-      # Opciones de descarga
-      st.subheader("📥 Descarga de Resultados")
-      col1, col2 = st.columns(2)
-
-      with col1:
-        tipo_csv = st.radio(
-            "Formato de exportación CSV:",
-            [
-                "Resumen por Proveedor (Totales agrupados)",
-                "Detalle completo por albarán",
-            ],
-            horizontal=False,
+        st.subheader("✏️ Validación y Corrección (Datos extraídos por la IA)")
+        st.write(
+            "La IA ha rellenado los campos automáticamente. Puedes verificar o"
+            " corregir cualquier dato directamente en la tabla si lo necesitas."
         )
 
-        if "Resumen" in tipo_csv:
-          csv_data = df_resumen.to_csv(index=False).encode("utf-8")
-          nombre_csv = "resumen_contable_proveedores.csv"
-        else:
-          csv_data = df_editado.to_csv(index=False).encode("utf-8")
-          nombre_csv = "detalle_completo_albaranes.csv"
-
-        st.download_button(
-            label="⬇️ Descargar Informe CSV Definitivo",
-            data=csv_data,
-            file_name=nombre_csv,
-            mime="text/csv",
+        df_editado = st.data_editor(
+            st.session_state["df_albaranes"],
+            use_container_width=True,
+            num_rows="fixed",
         )
 
-      with col2:
-        st.write("**Paquete de PDFs Agrupados:**")
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-          for prov, writer in st.session_state["proveedores_pdfs"].items():
-            pdf_buffer = io.BytesIO()
-            writer.write(pdf_buffer)
-            pdf_bytes = pdf_buffer.getvalue()
-
-            nombre_archivo_pdf = f"{prov.replace(' ', '_')}_agrupado.pdf"
-            zip_file.writestr(nombre_archivo_pdf, pdf_bytes)
-
-        zip_buffer.seek(0)
-
-        st.download_button(
-            label="📦 Descargar ZIP con PDFs por Proveedor",
-            data=zip_buffer,
-            file_name="albaranes_agrupados_por_proveedor.zip",
-            mime="application/zip",
+        # --- RESUMEN CONSOLIDADO POR PROVEEDOR ---
+        st.subheader(
+            "📊 Resumen Consolidado por Proveedor (Listo para Contabilidad)"
         )
+        df_resumen = (
+            df_editado.groupby("Proveedor")[["Total (€)"]].sum().reset_index()
+        )
+        conteo = (
+            df_editado.groupby("Proveedor")
+            .size()
+            .reset_index(name="Nº Albaranes")
+        )
+        df_resumen = pd.merge(conteo, df_resumen, on="Proveedor")
+
+        st.dataframe(df_resumen, use_container_width=True)
+
+        # Opciones de descarga
+        st.subheader("📥 Descarga de Resultados")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            tipo_csv = st.radio(
+                "Formato de exportación CSV:",
+                [
+                    "Resumen por Proveedor (Totales agrupados)",
+                    "Detalle completo por albarán",
+                ],
+                horizontal=False,
+            )
+
+            if "Resumen" in tipo_csv:
+                csv_data = df_resumen.to_csv(index=False).encode("utf-8")
+                nombre_csv = "resumen_contable_proveedores.csv"
+            else:
+                csv_data = df_editado.to_csv(index=False).encode("utf-8")
+                nombre_csv = "detalle_completo_albaranes.csv"
+
+            st.download_button(
+                label="⬇️ Descargar Informe CSV Definitivo",
+                data=csv_data,
+                file_name=nombre_csv,
+                mime="text/csv",
+            )
+
+        with col2:
+            st.write("**Paquete de PDFs Agrupados:**")
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                for prov, writer in st.session_state["proveedores_pdfs"].items():
+                    pdf_buffer = io.BytesIO()
+                    writer.write(pdf_buffer)
+                    pdf_bytes = pdf_buffer.getvalue()
+
+                    nombre_archivo_pdf = f"{prov.replace(' ', '_')}_agrupado.pdf"
+                    zip_file.writestr(nombre_archivo_pdf, pdf_bytes)
+
+            zip_buffer.seek(0)
+
+            st.download_button(
+                label="📦 Descargar ZIP con PDFs por Proveedor",
+                data=zip_buffer,
+                file_name="albaranes_agrupados_por_proveedor.zip",
+                mime="application/zip",
+            )
 
 else:
-  st.info(
-      "👆 Sube tus albaranes y configura tu clave API de Gemini en la barra"
-      " lateral para comenzar."
-  )
+    st.info(
+        "👆 Sube tus albaranes y configura tu clave API de Gemini en la barra"
+        " lateral para comenzar."
+    )
