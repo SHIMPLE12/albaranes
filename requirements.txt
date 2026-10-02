@@ -1,5 +1,5 @@
 streamlit
 pandas
-pdfplumber
 pypdf
-google-genai
+pdf2image
+google-generativeai
