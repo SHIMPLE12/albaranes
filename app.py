@@ -47,26 +47,22 @@ uploaded_files = st.file_uploader(
 def extraer_datos_con_gemini(pdf_bytes, api_key):
     """Envía el albarán convertido en imagen a Gemini para que extraiga los datos clave."""
     genai.configure(api_key=api_key)
-    # Usamos Gemini 2.5 Flash (actualizado y compatible)
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    # Usamos Gemini 3.8 Flash (modelo moderno y altamente compatible)
+    model = genai.GenerativeModel("gemini-3.8-flash")
 
     # Convertir la primera página del PDF en imagen para que la IA la "vea"
     imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=200)
     if not imagenes:
-        st.error("No se pudo convertir el PDF a imagen.")
         return None
 
     imagen_pil = imagenes[0]
 
     prompt = (
-        "Analiza este documento comercial (albarán o factura). Extrae"
-        " estrictamente en formato JSON plano (sin bloques markdown adicionales"
-        " como ```json) los siguientes 4 campos:\n"
-        '1. "proveedor": Nombre de la empresa emisora o proveedor.\n'
-        '2. "cif": NIF o CIF del proveedor (si aparece, si no pon "").\n'
-        '3. "fecha": Fecha del documento en formato DD/MM/AAAA (si no, "").\n'
-        '4. "total": El importe total a pagar en número decimal (ejemplo:'
-        ' 154.50). Si no encuentras el total, pon 0.0.'
+        "Analiza este documento comercial (albarán o factura). Extrae estrictamente"
+        " en formato JSON puro, sin explicaciones ni bloques markdown de código"
+        " (nada de ```json), exactamente con estas 4 claves:\n"
+        '{"proveedor": "Nombre de la empresa emisora", "cif": "NIF o CIF o vacio", '
+        '"fecha": "DD/MM/AAAA o vacio", "total": 0.0}'
     )
 
     response = model.generate_content([prompt, imagen_pil])
@@ -74,6 +70,7 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
 
     # Limpiar posibles marcas de formato markdown de la respuesta de la IA
     texto_respuesta = re.sub(r"^```json\s*", "", texto_respuesta)
+    texto_respuesta = re.sub(r"^```\s*", "", texto_respuesta)
     texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
 
     datos = json.loads(texto_respuesta)
@@ -106,14 +103,38 @@ if uploaded_files:
                 file_bytes = file.read()
                 file.seek(0)
 
-                # 1. Llamada a Gemini para extraer datos automáticamente con control de errores detallado
+                resultado_ia = None
                 try:
                     resultado_ia = extraer_datos_con_gemini(
                         file_bytes, api_key_input
                     )
                 except Exception as e:
-                    st.error(f"Error procesando {file.name}: {e}")
-                    resultado_ia = None
+                    # Si falla, intentamos una segunda opción por si acaso con gemini-2.5-flash
+                    try:
+                        genai.configure(api_key=api_key_input)
+                        model_fallback = genai.GenerativeModel(
+                            "gemini-2.5-flash"
+                        )
+                        imagenes = convert_from_bytes(
+                            file_bytes, first_page=1, last_page=1, dpi=200
+                        )
+                        prompt = (
+                            "Extrae en JSON plano con claves proveedor, cif,"
+                            ' fecha, total (número): {"proveedor": "...", "cif":'
+                            ' "...", "fecha": "...", "total": 0.0}'
+                        )
+                        resp = model_fallback.generate_content(
+                            [prompt, imagenes[0]]
+                        )
+                        limpio = re.sub(
+                            r"```json|```", "", resp.text
+                        ).strip()
+                        resultado_ia = json.loads(limpio)
+                    except Exception as err:
+                        st.error(
+                            f"No se pudo leer {file.name}. Error técnico: {err}"
+                        )
+                        resultado_ia = None
 
                 if resultado_ia:
                     proveedor = (
@@ -122,7 +143,7 @@ if uploaded_files:
                         .strip()
                     )
                     proveedor = re.sub(r'[\\/*?:"<>|]', "", proveedor)[:35]
-                    if not proveedor:
+                    if not proveedor or proveedor == "NONE":
                         proveedor = "PROVEEDOR_GENERAL"
 
                     cif = str(resultado_ia.get("cif", ""))
@@ -162,7 +183,7 @@ if uploaded_files:
 
     # Si ya se procesaron los datos, mostramos los resultados y opciones de descarga
     if "df_albaranes" in st.session_state:
-        st.subheader("✏️️ Validación y Corrección (Datos extraídos por la IA)")
+        st.subheader("✏️ Validación y Corrección (Datos extraídos por la IA)")
         st.write(
             "La IA ha rellenado los campos automáticamente. Puedes verificar o"
             " corregir cualquier dato directamente en la tabla si lo necesitas."
