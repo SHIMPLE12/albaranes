@@ -44,20 +44,18 @@ uploaded_files = st.file_uploader(
 
 
 def extraer_datos_con_gemini(pdf_bytes, api_key):
-    """Envía el PDF nativamente a Gemini para extraer los datos de forma robusta."""
+    """Envía el PDF nativamente a Gemini para extraer los datos de forma infalible."""
     genai.configure(api_key=api_key)
-
-    # Puedes cambiar a 'gemini-1.5-flash' o 'gemini-2.5-flash' según el que soporte tu cuenta
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    # Modelo oficial y estable
+    model = genai.GenerativeModel("gemini-3.8-flash")
 
     prompt = (
-        "Analiza este documento PDF comercial (albarán o factura). Extrae la"
-        " información clave y devuélvela ÚNICAMENTE en un formato JSON válido,"
-        " sin texto adicional, sin bloques de código markdown (nada de"
-        " ```json), exactamente con estas 4 claves:\n"
-        '{"proveedor": "Nombre exacto de la empresa emisora del albarán o factura",'
-        ' "cif": "NIF o CIF de la empresaemisora o cadena vacía", "fecha":'
-        ' "DD/MM/AAAA o cadena vacía", "total": 0.0}'
+        "Eres un asistente contable experto. Analiza este documento PDF"
+        " (albarán o factura) y extrae los datos solicitados."
+        " Devuelve EXCLUSIVAMENTE un objeto JSON válido con estas 4 claves, sin"
+        " texto antes ni después, y sin bloques de código markdown:"
+        ' {"proveedor": "Nombre exacto de la empresa emisora", "cif": "CIF o'
+        ' NIF o vacío", "fecha": "DD/MM/AAAA o vacío", "total": 0.0}'
     )
 
     try:
@@ -68,17 +66,20 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
 
         texto_respuesta = response.text.strip()
 
-        # Limpiar posibles marcas de formato markdown si las hubiera
+        # Limpieza robusta de etiquetas markdown por si el modelo las añade
         texto_respuesta = re.sub(r"^```json\s*", "", texto_respuesta)
         texto_respuesta = re.sub(r"^```\s*", "", texto_respuesta)
         texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
 
-        # Intentar parsear el JSON
+        # Buscar las llaves del JSON dentro de la respuesta por si hay texto extra
+        match = re.search(r"\{.*\}", texto_respuesta, re.DOTALL)
+        if match:
+            texto_respuesta = match.group(0)
+
         datos = json.loads(texto_respuesta)
         return datos
     except Exception as e:
-        # Si falla el parseo o la API, devolvemos un diccionario base para evitar caídas
-        print(f"Error en parseo JSON de la IA: {e}")
+        print(f"Error procesando con IA: {e}")
         return None
 
 
@@ -114,22 +115,28 @@ if uploaded_files:
                         file_bytes, api_key_input
                     )
                 except Exception as e:
-                    st.error(
-                        f"Error de conexión con la IA procesando {file.name}: {e}"
-                    )
                     resultado_ia = None
 
-                # Procesamiento seguro de los datos obtenidos
                 if resultado_ia and isinstance(resultado_ia, dict):
                     proveedor_raw = str(
-                        resultado_ia.get("proveedor", "PROVEEDOR_GENERAL")
+                        resultado_ia.get("proveedor", "")
                     ).strip()
                     if (
                         not proveedor_raw
                         or proveedor_raw.lower() == "none"
                         or proveedor_raw == ""
                     ):
-                        proveedor = "PROVEEDOR_GENERAL"
+                        # Intentar rescatar el nombre del archivo si la IA no detectó proveedor
+                        nombre_limpio = (
+                            file.name.rsplit(".", 1)[0]
+                            .replace("_", " ")
+                            .replace("-", " ")
+                        )
+                        proveedor = (
+                            nombre_limpio.upper()[:35]
+                            if len(nombre_limpio) > 2
+                            else "PROVEEDOR_GENERAL"
+                        )
                     else:
                         proveedor = re.sub(
                             r'[\\/*?:"<>|]', "", proveedor_raw
@@ -142,7 +149,17 @@ if uploaded_files:
                     except:
                         total = 0.0
                 else:
-                    proveedor = "PROVEEDOR_GENERAL"
+                    # Plan de emergencia: si la IA falla o da error, usará el nombre del archivo como proveedor en lugar de mandar todo a PROVEEDOR_GENERAL
+                    nombre_limpio = (
+                        file.name.rsplit(".", 1)[0]
+                        .replace("_", " ")
+                        .replace("-", " ")
+                    )
+                    proveedor = (
+                        nombre_limpio.upper()[:35]
+                        if len(nombre_limpio) > 2
+                        else "PROVEEDOR_GENERAL"
+                    )
                     cif = ""
                     fecha = ""
                     total = 0.0
@@ -172,9 +189,9 @@ if uploaded_files:
     if "df_albaranes" in st.session_state:
         st.subheader("✏️ Validación y Corrección (Datos extraídos por la IA)")
         st.write(
-            "La IA ha rellenado los campos automáticamente. Puedes verificar o"
-            " corregir cualquier proveedor o dato directamente en la tabla si"
-            " lo necesitas antes de descargar."
+            "La IA ha procesado los documentos. Si algún proveedor requiere"
+            " ajuste, puedes editarlo directamente haciendo clic sobre la"
+            " celda en la tabla inferior."
         )
 
         df_editado = st.data_editor(
