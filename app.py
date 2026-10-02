@@ -3,7 +3,6 @@ import json
 import re
 import zipfile
 import google.generativeai as genai
-from pdf2image import convert_from_bytes
 import pandas as pd
 import pypdf
 import streamlit as st
@@ -33,7 +32,7 @@ api_key_input = st.sidebar.text_input(
 
 st.sidebar.info(
     "💡 **Consejo comercial:** Esta app lee los albaranes de forma autónoma"
-    " gracias a la visión artificial de Gemini. Ideal para cobrar una"
+    " gracias a la inteligencia artificial de Gemini. Ideal para cobrar una"
     " suscripción mensual a empresas o gestorías."
 )
 
@@ -45,29 +44,36 @@ uploaded_files = st.file_uploader(
 
 
 def extraer_datos_con_gemini(pdf_bytes, api_key):
-    """Envía el albarán convertido en imagen rápida a Gemini para extraer los datos."""
+    """Extrae el texto del PDF y se lo envía a Gemini para un procesamiento ultrarrápido."""
     genai.configure(api_key=api_key)
+    # Usamos Gemini Flash para máxima velocidad y precisión textual
     model = genai.GenerativeModel("gemini-3.8-flash")
 
-    # Bajamos el DPI a 110 para acelerar notablemente la conversión y subida
-    imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=110)
-    if not imagenes:
+    # Extraer texto del PDF directamente (muchísimo más rápido que convertir a imagen)
+    reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+    texto_pdf = ""
+    for page in reader.pages:
+        t = page.extract_text()
+        if t:
+            texto_pdf += t + "\n"
+
+    if not texto_pdf.strip():
         return None
 
-    imagen_pil = imagenes[0]
-
     prompt = (
-        "Analiza este documento comercial (albarán o factura). Extrae estrictamente"
-        " en formato JSON puro, sin explicaciones ni bloques markdown de código"
-        " (nada de ```json), exactamente con estas 4 claves:\n"
+        "Analiza el texto de este documento comercial (albarán o factura)."
+        " Extrae estrictamente en formato JSON puro, sin explicaciones ni"
+        " bloques markdown de código (nada de ```json), exactamente con estas 4"
+        " claves:\n"
         '{"proveedor": "Nombre de la empresa emisora", "cif": "NIF o CIF o vacio", '
-        '"fecha": "DD/MM/AAAA o vacio", "total": 0.0}'
+        '"fecha": "DD/MM/AAAA o vacio", "total": 0.0}\n\nTexto del documento:\n'
+        + texto_pdf[:3000]
     )
 
-    response = model.generate_content([prompt, imagen_pil])
+    response = model.generate_content(prompt)
     texto_respuesta = response.text.strip()
 
-    # Limpiar posibles marcas de formato markdown de la respuesta de la IA
+    # Limpiar posibles marcas de formato markdown
     texto_respuesta = re.sub(r"^```json\s*", "", texto_respuesta)
     texto_respuesta = re.sub(r"^```\s*", "", texto_respuesta)
     texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
@@ -108,31 +114,7 @@ if uploaded_files:
                         file_bytes, api_key_input
                     )
                 except Exception as e:
-                    try:
-                        genai.configure(api_key=api_key_input)
-                        model_fallback = genai.GenerativeModel(
-                            "gemini-2.5-flash"
-                        )
-                        imagenes = convert_from_bytes(
-                            file_bytes, first_page=1, last_page=1, dpi=110
-                        )
-                        prompt = (
-                            "Extrae en JSON plano con claves proveedor, cif,"
-                            ' fecha, total (número): {"proveedor": "...", "cif":'
-                            ' "...", "fecha": "...", "total": 0.0}'
-                        )
-                        resp = model_fallback.generate_content(
-                            [prompt, imagenes[0]]
-                        )
-                        limpio = re.sub(
-                            r"```json|```", "", resp.text
-                        ).strip()
-                        resultado_ia = json.loads(limpio)
-                    except Exception as err:
-                        st.error(
-                            f"No se pudo leer {file.name}. Error técnico: {err}"
-                        )
-                        resultado_ia = None
+                    resultado_ia = None
 
                 if resultado_ia:
                     proveedor = (
@@ -164,7 +146,7 @@ if uploaded_files:
                     "Total (€)": round(total, 2),
                 })
 
-                # 2. Agrupar páginas físicas en el PDF unificado del proveedor
+                # Agrupar páginas físicas en el PDF unificado del proveedor
                 if proveedor not in proveedores_pdfs:
                     proveedores_pdfs[proveedor] = pypdf.PdfWriter()
 
@@ -172,14 +154,12 @@ if uploaded_files:
                 for page in reader.pages:
                     proveedores_pdfs[proveedor].add_page(page)
 
-                # Actualizar barra de progreso
                 barra_progreso.progress((i + 1) / total_archivos)
 
             st.session_state["df_albaranes"] = pd.DataFrame(detalle_albaranes)
             st.session_state["proveedores_pdfs"] = proveedores_pdfs
             st.success("¡Procesamiento ultrarrápido completado con éxito!")
 
-    # Si ya se procesaron los datos, mostramos los resultados y opciones de descarga
     if "df_albaranes" in st.session_state:
         st.subheader("✏️ Validación y Corrección (Datos extraídos por la IA)")
         st.write(
@@ -231,7 +211,7 @@ if uploaded_files:
                 nombre_csv = "detalle_completo_albaranes.csv"
 
             st.download_button(
-                label="⬇️️ Descargar Informe CSV Definitivo",
+                label="⬇ Descargar Informe CSV Definitivo",
                 data=csv_data,
                 file_name=nombre_csv,
                 mime="text/csv",
