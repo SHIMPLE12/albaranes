@@ -3,6 +3,7 @@ import json
 import re
 import zipfile
 import google.generativeai as genai
+from pdf2image import convert_from_bytes
 import pandas as pd
 import pypdf
 import streamlit as st
@@ -32,7 +33,7 @@ api_key_input = st.sidebar.text_input(
 
 st.sidebar.info(
     "💡 **Consejo comercial:** Esta app lee los albaranes de forma autónoma"
-    " gracias a la inteligencia artificial de Gemini. Ideal para cobrar una"
+    " gracias a la visión artificial de Gemini. Ideal para cobrar una"
     " suscripción mensual a empresas o gestorías."
 )
 
@@ -43,58 +44,36 @@ uploaded_files = st.file_uploader(
 )
 
 
-def extraer_texto_pdf(pdf_bytes):
-    """Extrae todo el texto plano del PDF de forma tradicional."""
-    texto = ""
-    try:
-        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
-        for page in reader.pages:
-            t = page.extract_text()
-            if t:
-                texto += t + "\n"
-    except Exception as e:
-        print(f"Error leyendo PDF: {e}")
-    return texto
+def extraer_datos_con_gemini(pdf_bytes, api_key):
+    """Envía el albarán convertido en imagen rápida a Gemini para extraer los datos."""
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-3.8-flash")
 
-
-def analizar_con_gemini(texto_pdf, api_key):
-    """Envía el texto extraído a Gemini para que devuelva los datos estructurados en JSON."""
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-
-        prompt = f"""
-        Analiza el siguiente texto extraído de un documento comercial (albarán o factura). 
-        Extrae los siguientes datos y devuélvelos en formato JSON puro (sin bloques de código markdown, solo el objeto JSON):
-        {{
-          "proveedor": "Nombre de la empresa emisora",
-          "cif": "CIF o NIF del emisor",
-          "fecha": "Fecha del documento en formato DD/MM/AAAA",
-          "total": 0.0
-        }}
-
-        Texto del documento:
-        {texto_pdf}
-        """
-
-        response = model.generate_content(prompt)
-        texto_respuesta = response.text.strip()
-
-        # Limpieza de formato markdown
-        texto_respuesta = re.sub(r"^```json\s*", "", texto_respuesta)
-        texto_respuesta = re.sub(r"^```\s*", "", texto_respuesta)
-        texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
-
-        match = re.search(r"\{.*\}", texto_respuesta, re.DOTALL)
-        if match:
-            texto_respuesta = match.group(0)
-
-        datos = json.loads(texto_respuesta)
-        return datos
-
-    except Exception as e:
-        print(f"Error con Gemini: {e}")
+    # Bajamos el DPI a 110 para acelerar notablemente la conversión y subida
+    imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=110)
+    if not imagenes:
         return None
+
+    imagen_pil = imagenes[0]
+
+    prompt = (
+        "Analiza este documento comercial (albarán o factura). Extrae estrictamente"
+        " en formato JSON puro, sin explicaciones ni bloques markdown de código"
+        " (nada de ```json), exactamente con estas 4 claves:\n"
+        '{"proveedor": "Nombre de la empresa emisora", "cif": "NIF o CIF o vacio", '
+        '"fecha": "DD/MM/AAAA o vacio", "total": 0.0}'
+    )
+
+    response = model.generate_content([prompt, imagen_pil])
+    texto_respuesta = response.text.strip()
+
+    # Limpiar posibles marcas de formato markdown de la respuesta de la IA
+    texto_respuesta = re.sub(r"^```json\s*", "", texto_respuesta)
+    texto_respuesta = re.sub(r"^```\s*", "", texto_respuesta)
+    texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
+
+    datos = json.loads(texto_respuesta)
+    return datos
 
 
 if uploaded_files:
@@ -123,39 +102,47 @@ if uploaded_files:
                 file_bytes = file.read()
                 file.seek(0)
 
-                # 1. Extraer texto del PDF
-                texto_extraido = extraer_texto_pdf(file_bytes)
-
-                # 2. Enviar texto a Gemini
                 resultado_ia = None
-                if texto_extraido.strip():
-                    resultado_ia = analizar_con_gemini(
-                        texto_extraido, api_key_input
+                try:
+                    resultado_ia = extraer_datos_con_gemini(
+                        file_bytes, api_key_input
                     )
+                except Exception as e:
+                    try:
+                        genai.configure(api_key=api_key_input)
+                        model_fallback = genai.GenerativeModel(
+                            "gemini-2.5-flash"
+                        )
+                        imagenes = convert_from_bytes(
+                            file_bytes, first_page=1, last_page=1, dpi=110
+                        )
+                        prompt = (
+                            "Extrae en JSON plano con claves proveedor, cif,"
+                            ' fecha, total (número): {"proveedor": "...", "cif":'
+                            ' "...", "fecha": "...", "total": 0.0}'
+                        )
+                        resp = model_fallback.generate_content(
+                            [prompt, imagenes[0]]
+                        )
+                        limpio = re.sub(
+                            r"```json|```", "", resp.text
+                        ).strip()
+                        resultado_ia = json.loads(limpio)
+                    except Exception as err:
+                        st.error(
+                            f"No se pudo leer {file.name}. Error técnico: {err}"
+                        )
+                        resultado_ia = None
 
-                if resultado_ia and isinstance(resultado_ia, dict):
-                    proveedor_raw = str(
-                        resultado_ia.get("proveedor", "")
-                    ).strip()
-                    if (
-                        not proveedor_raw
-                        or proveedor_raw.lower() == "none"
-                        or proveedor_raw == ""
-                    ):
-                        nombre_limpio = (
-                            file.name.rsplit(".", 1)[0]
-                            .replace("_", " ")
-                            .replace("-", " ")
-                        )
-                        proveedor = (
-                            nombre_limpio.upper()[:35]
-                            if len(nombre_limpio) > 2
-                            else "PROVEEDOR_GENERAL"
-                        )
-                    else:
-                        proveedor = re.sub(
-                            r'[\\/*?:"<>|]', "", proveedor_raw
-                        ).upper()[:35]
+                if resultado_ia:
+                    proveedor = (
+                        str(resultado_ia.get("proveedor", "PROVEEDOR_GENERAL"))
+                        .upper()
+                        .strip()
+                    )
+                    proveedor = re.sub(r'[\\/*?:"<>|]', "", proveedor)[:35]
+                    if not proveedor or proveedor == "NONE":
+                        proveedor = "PROVEEDOR_GENERAL"
 
                     cif = str(resultado_ia.get("cif", ""))
                     fecha = str(resultado_ia.get("fecha", ""))
@@ -164,16 +151,7 @@ if uploaded_files:
                     except:
                         total = 0.0
                 else:
-                    nombre_limpio = (
-                        file.name.rsplit(".", 1)[0]
-                        .replace("_", " ")
-                        .replace("-", " ")
-                    )
-                    proveedor = (
-                        nombre_limpio.upper()[:35]
-                        if len(nombre_limpio) > 2
-                        else "PROVEEDOR_GENERAL"
-                    )
+                    proveedor = "PROVEEDOR_GENERAL"
                     cif = ""
                     fecha = ""
                     total = 0.0
@@ -186,7 +164,7 @@ if uploaded_files:
                     "Total (€)": round(total, 2),
                 })
 
-                # Agrupar páginas físicas en el PDF unificado del proveedor
+                # 2. Agrupar páginas físicas en el PDF unificado del proveedor
                 if proveedor not in proveedores_pdfs:
                     proveedores_pdfs[proveedor] = pypdf.PdfWriter()
 
@@ -194,18 +172,19 @@ if uploaded_files:
                 for page in reader.pages:
                     proveedores_pdfs[proveedor].add_page(page)
 
+                # Actualizar barra de progreso
                 barra_progreso.progress((i + 1) / total_archivos)
 
             st.session_state["df_albaranes"] = pd.DataFrame(detalle_albaranes)
             st.session_state["proveedores_pdfs"] = proveedores_pdfs
-            st.success("¡Procesamiento completado con éxito!")
+            st.success("¡Procesamiento ultrarrápido completado con éxito!")
 
+    # Si ya se procesaron los datos, mostramos los resultados y opciones de descarga
     if "df_albaranes" in st.session_state:
         st.subheader("✏️ Validación y Corrección (Datos extraídos por la IA)")
         st.write(
-            "La IA ha procesado los documentos. Puedes verificar y ajustar"
-            " cualquier campo directamente haciendo clic en las celdas de la"
-            " tabla antes de realizar tus descargas."
+            "La IA ha rellenado los campos automáticamente. Puedes verificar o"
+            " corregir cualquier dato directamente en la tabla si lo necesitas."
         )
 
         df_editado = st.data_editor(
@@ -252,7 +231,7 @@ if uploaded_files:
                 nombre_csv = "detalle_completo_albaranes.csv"
 
             st.download_button(
-                label="⬇ Descargar Informe CSV Definitivo",
+                label="⬇️️ Descargar Informe CSV Definitivo",
                 data=csv_data,
                 file_name=nombre_csv,
                 mime="text/csv",
