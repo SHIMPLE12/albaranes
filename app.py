@@ -46,8 +46,8 @@ uploaded_files = st.file_uploader(
 def extraer_datos_con_gemini(pdf_bytes, api_key):
     """Envía el PDF nativamente a Gemini para extraer los datos de forma infalible."""
     genai.configure(api_key=api_key)
-    # Actualizado al modelo estándar compatible con la API actual de Google
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    # Actualizado al modelo actual recomendado por la API
+    model = genai.GenerativeModel("gemini-3.8-flash")
 
     prompt = (
         "Analiza este documento PDF comercial (albarán o factura). Extrae"
@@ -77,7 +77,7 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
 if uploaded_files:
     if not api_key_input:
         st.error(
-            "⚠️ Por favor, introduce tu Clave API de Gemini en la barra lateral"
+            "⚠️️ Por favor, introduce tu Clave API de Gemini en la barra lateral"
             " izquierda para que la inteligencia artificial pueda leer los"
             " albaranes."
         )
@@ -154,7 +154,7 @@ if uploaded_files:
             st.success("¡Procesamiento completado con éxito!")
 
     if "df_albaranes" in st.session_state:
-        st.subheader("✏️ Validación y Corrección (Datos extraídos por la IA)")
+        st.subheader("✏️️ Validación y Corrección (Datos extraídos por la IA)")
         st.write(
             "La IA ha rellenado los campos automáticamente. Puedes verificar o"
             " corregir cualquier dato directamente en la tabla si lo necesitas."
