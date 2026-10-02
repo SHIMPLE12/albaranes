@@ -1,6 +1,8 @@
 import io
 import json
+import os
 import re
+import tempfile
 import zipfile
 import google.generativeai as genai
 import pandas as pd
@@ -43,31 +45,41 @@ uploaded_files = st.file_uploader(
 )
 
 
-def extraer_datos_con_gemini_bytes(pdf_bytes, api_key):
-    """Envía los bytes del PDF directamente a la IA asegurando una lectura compatible con Streamlit Cloud."""
+def extraer_datos_con_gemini(pdf_bytes, filename, api_key):
+    """Sube el PDF utilizando la API oficial de archivos de Gemini para garantizar una lectura correcta."""
+    genai.configure(api_key=api_key)
+
+    # Creamos un archivo temporal físico para asegurar compatibilidad con la API de subida de Google
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+        tmp_file.write(pdf_bytes)
+        tmp_path = tmp_file.name
+
+    file_ref = None
     try:
-        genai.configure(api_key=api_key)
-        # Usamos el modelo estable 1.5 flash
+        # Sube el archivo temporal a la API de archivos de Gemini
+        file_ref = genai.upload_file(tmp_path, mime_type="application/pdf")
+
+        # Usamos el modelo gemini-1.5-flash
         model = genai.GenerativeModel("gemini-1.5-flash")
 
         prompt = (
-            "Analiza este documento comercial (albarán, ticket o factura) PDF."
-            " Extrae la información y devuélvela estrictamente como un objeto"
-            " JSON válido con estas 4 claves, sin texto adicional ni bloques"
-            ' de markdown:\n{\n  "proveedor": "Nombre de la empresa o emisor",'
-            '\n  "cif": "CIF o NIF del emisor (o vacío)",\n  "fecha": "Fecha en'
-            ' formato DD/MM/AAAA (o vacío)",\n  "total": 0.0\n}'
+            "Analiza este documento comercial (albarán, ticket o factura). Extrae"
+            " los datos y devuélvelos estrictamente en formato JSON plano (sin"
+            " bloques markdown ni comillas adicionales de código), con las"
+            " siguientes 4 claves exactas:\n"
+            "{\n"
+            '  "proveedor": "Nombre exacto de la empresa emisora o proveedor",\n'
+            '  "cif": "CIF o NIF del emisor (o cadena vacía si no aparece)",\n'
+            '  "fecha": "Fecha del documento en formato DD/MM/AAAA (o cadena'
+            ' vacía)",\n'
+            '  "total": 0.0\n'
+            "}"
         )
 
-        # Envío directo seguro por bytes
-        response = model.generate_content([
-            {"mime_type": "application/pdf", "data": pdf_bytes},
-            prompt,
-        ])
-
+        response = model.generate_content([file_ref, prompt])
         texto_respuesta = response.text.strip()
 
-        # Limpieza robusta de formato Markdown y comentarios extra
+        # Limpieza exhaustiva de formatos de markdown
         texto_respuesta = re.sub(
             r"^```(?:json)?\s*", "", texto_respuesta, flags=re.IGNORECASE
         )
@@ -81,8 +93,18 @@ def extraer_datos_con_gemini_bytes(pdf_bytes, api_key):
         return datos
 
     except Exception as e:
-        print(f"Error detallado en Gemini: {e}")
+        print(f"Error procesando {filename} con Gemini: {e}")
         return None
+    finally:
+        # Limpieza de archivos temporales locales
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        # Limpieza del archivo remoto en Google
+        if file_ref:
+            try:
+                genai.delete_file(file_ref.name)
+            except:
+                pass
 
 
 if uploaded_files:
@@ -111,8 +133,8 @@ if uploaded_files:
                 file_bytes = file.read()
                 file.seek(0)
 
-                resultado_ia = extraer_datos_con_gemini_bytes(
-                    file_bytes, api_key_input
+                resultado_ia = extraer_datos_con_gemini(
+                    file_bytes, file.name, api_key_input
                 )
 
                 if resultado_ia and isinstance(resultado_ia, dict):
