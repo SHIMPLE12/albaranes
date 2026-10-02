@@ -1,6 +1,8 @@
 import io
 import json
+import os
 import re
+import tempfile
 import zipfile
 import google.generativeai as genai
 import pandas as pd
@@ -44,43 +46,58 @@ uploaded_files = st.file_uploader(
 
 
 def extraer_datos_con_gemini(pdf_bytes, api_key):
-    """Envía el PDF nativamente a Gemini para extraer los datos de forma infalible."""
+    """Sube el archivo PDF temporalmente a Gemini para garantizar una lectura y extracción perfecta."""
     genai.configure(api_key=api_key)
-    # Modelo oficial y estable
-    model = genai.GenerativeModel("gemini-3.8-flash")
 
-    prompt = (
-        "Eres un asistente contable experto. Analiza este documento PDF"
-        " (albarán o factura) y extrae los datos solicitados."
-        " Devuelve EXCLUSIVAMENTE un objeto JSON válido con estas 4 claves, sin"
-        " texto antes ni después, y sin bloques de código markdown:"
-        ' {"proveedor": "Nombre exacto de la empresa emisora", "cif": "CIF o'
-        ' NIF o vacío", "fecha": "DD/MM/AAAA o vacío", "total": 0.0}'
-    )
+    # Creamos un archivo temporal para que la API de Gemini lo procese de forma nativa
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+        tmp_file.write(pdf_bytes)
+        tmp_path = tmp_file.name
 
+    file_ref = None
     try:
-        response = model.generate_content([
-            prompt,
-            {"mime_type": "application/pdf", "data": pdf_bytes},
-        ])
+        # Subimos el archivo utilizando el gestor de archivos oficial de Google GenAI
+        file_ref = genai.upload_file(tmp_path, mime_type="application/pdf")
 
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        prompt = (
+            "Analiza este documento comercial (albarán o factura). Extrae la"
+            " información y devuélvela ÚNICAMENTE en formato JSON plano, sin"
+            " bloques de markdown (nada de ```json), exactamente con estas 4"
+            " claves:\n"
+            '{"proveedor": "Nombre exacto de la empresa emisora", "cif": "CIF'
+            ' o NIF o vacío", "fecha": "DD/MM/AAAA o vacío", "total": 0.0}'
+        )
+
+        response = model.generate_content([file_ref, prompt])
         texto_respuesta = response.text.strip()
 
-        # Limpieza robusta de etiquetas markdown por si el modelo las añade
+        # Limpieza de formato markdown por si acaso
         texto_respuesta = re.sub(r"^```json\s*", "", texto_respuesta)
         texto_respuesta = re.sub(r"^```\s*", "", texto_respuesta)
         texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
 
-        # Buscar las llaves del JSON dentro de la respuesta por si hay texto extra
         match = re.search(r"\{.*\}", texto_respuesta, re.DOTALL)
         if match:
             texto_respuesta = match.group(0)
 
         datos = json.loads(texto_respuesta)
         return datos
+
     except Exception as e:
-        print(f"Error procesando con IA: {e}")
+        print(f"Error en la extracción con Gemini: {e}")
         return None
+    finally:
+        # Limpieza del archivo temporal local
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        # Borrar el archivo remoto de la API si llegó a subirse
+        if file_ref:
+            try:
+                genai.delete_file(file_ref.name)
+            except:
+                pass
 
 
 if uploaded_files:
@@ -126,7 +143,6 @@ if uploaded_files:
                         or proveedor_raw.lower() == "none"
                         or proveedor_raw == ""
                     ):
-                        # Intentar rescatar el nombre del archivo si la IA no detectó proveedor
                         nombre_limpio = (
                             file.name.rsplit(".", 1)[0]
                             .replace("_", " ")
@@ -149,7 +165,6 @@ if uploaded_files:
                     except:
                         total = 0.0
                 else:
-                    # Plan de emergencia: si la IA falla o da error, usará el nombre del archivo como proveedor en lugar de mandar todo a PROVEEDOR_GENERAL
                     nombre_limpio = (
                         file.name.rsplit(".", 1)[0]
                         .replace("_", " ")
@@ -189,9 +204,9 @@ if uploaded_files:
     if "df_albaranes" in st.session_state:
         st.subheader("✏️ Validación y Corrección (Datos extraídos por la IA)")
         st.write(
-            "La IA ha procesado los documentos. Si algún proveedor requiere"
-            " ajuste, puedes editarlo directamente haciendo clic sobre la"
-            " celda en la tabla inferior."
+            "La IA ha procesado los documentos. Puedes verificar y ajustar"
+            " cualquier campo directamente haciendo clic en las celdas de la"
+            " tabla antes de realizar tus descargas."
         )
 
         df_editado = st.data_editor(
