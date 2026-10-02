@@ -1,8 +1,6 @@
 import io
 import json
-import os
 import re
-import tempfile
 import zipfile
 import google.generativeai as genai
 import pandas as pd
@@ -45,37 +43,34 @@ uploaded_files = st.file_uploader(
 )
 
 
-def extraer_datos_con_gemini(pdf_bytes, api_key):
-    """Sube el archivo PDF temporalmente a Gemini para garantizar una lectura y extracción perfecta."""
-    genai.configure(api_key=api_key)
-
-    # Creamos un archivo temporal para que la API de Gemini lo procese de forma nativa
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-        tmp_file.write(pdf_bytes)
-        tmp_path = tmp_file.name
-
-    file_ref = None
+def extraer_datos_con_gemini_bytes(pdf_bytes, api_key):
+    """Envía los bytes del PDF directamente a la IA asegurando una lectura compatible con Streamlit Cloud."""
     try:
-        # Subimos el archivo utilizando el gestor de archivos oficial de Google GenAI
-        file_ref = genai.upload_file(tmp_path, mime_type="application/pdf")
-
+        genai.configure(api_key=api_key)
+        # Usamos el modelo estable 1.5 flash
         model = genai.GenerativeModel("gemini-1.5-flash")
 
         prompt = (
-            "Analiza este documento comercial (albarán o factura). Extrae la"
-            " información y devuélvela ÚNICAMENTE en formato JSON plano, sin"
-            " bloques de markdown (nada de ```json), exactamente con estas 4"
-            " claves:\n"
-            '{"proveedor": "Nombre exacto de la empresa emisora", "cif": "CIF'
-            ' o NIF o vacío", "fecha": "DD/MM/AAAA o vacío", "total": 0.0}'
+            "Analiza este documento comercial (albarán, ticket o factura) PDF."
+            " Extrae la información y devuélvela estrictamente como un objeto"
+            " JSON válido con estas 4 claves, sin texto adicional ni bloques"
+            ' de markdown:\n{\n  "proveedor": "Nombre de la empresa o emisor",'
+            '\n  "cif": "CIF o NIF del emisor (o vacío)",\n  "fecha": "Fecha en'
+            ' formato DD/MM/AAAA (o vacío)",\n  "total": 0.0\n}'
         )
 
-        response = model.generate_content([file_ref, prompt])
+        # Envío directo seguro por bytes
+        response = model.generate_content([
+            {"mime_type": "application/pdf", "data": pdf_bytes},
+            prompt,
+        ])
+
         texto_respuesta = response.text.strip()
 
-        # Limpieza de formato markdown por si acaso
-        texto_respuesta = re.sub(r"^```json\s*", "", texto_respuesta)
-        texto_respuesta = re.sub(r"^```\s*", "", texto_respuesta)
+        # Limpieza robusta de formato Markdown y comentarios extra
+        texto_respuesta = re.sub(
+            r"^```(?:json)?\s*", "", texto_respuesta, flags=re.IGNORECASE
+        )
         texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
 
         match = re.search(r"\{.*\}", texto_respuesta, re.DOTALL)
@@ -86,18 +81,8 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
         return datos
 
     except Exception as e:
-        print(f"Error en la extracción con Gemini: {e}")
+        print(f"Error detallado en Gemini: {e}")
         return None
-    finally:
-        # Limpieza del archivo temporal local
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-        # Borrar el archivo remoto de la API si llegó a subirse
-        if file_ref:
-            try:
-                genai.delete_file(file_ref.name)
-            except:
-                pass
 
 
 if uploaded_files:
@@ -126,13 +111,9 @@ if uploaded_files:
                 file_bytes = file.read()
                 file.seek(0)
 
-                resultado_ia = None
-                try:
-                    resultado_ia = extraer_datos_con_gemini(
-                        file_bytes, api_key_input
-                    )
-                except Exception as e:
-                    resultado_ia = None
+                resultado_ia = extraer_datos_con_gemini_bytes(
+                    file_bytes, api_key_input
+                )
 
                 if resultado_ia and isinstance(resultado_ia, dict):
                     proveedor_raw = str(
