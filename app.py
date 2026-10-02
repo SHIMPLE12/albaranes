@@ -46,43 +46,38 @@ uploaded_files = st.file_uploader(
 
 def extraer_datos_con_gemini(pdf_bytes, api_key):
     """Envía el albarán convertido en imagen a Gemini para que extraiga los datos clave."""
-    try:
-        genai.configure(api_key=api_key)
-        # Usamos Gemini Flash (rápido, económico e ideal para visión de documentos)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+    genai.configure(api_key=api_key)
+    # Usamos Gemini Flash (rápido, económico e ideal para visión de documentos)
+    model = genai.GenerativeModel("gemini-1.5-flash")
 
-        # Convertir la primera página del PDF en imagen para que la IA la "vea"
-        imagenes = convert_from_bytes(
-            pdf_bytes, first_page=1, last_page=1, dpi=200
-        )
-        if not imagenes:
-            return None
-
-        imagen_pil = imagenes[0]
-
-        prompt = (
-            "Analiza este documento comercial (albarán o factura). Extrae "
-            "estrictamente en formato JSON plano (sin bloques markdown adicionales"
-            " como ```json) los siguientes 4 campos:\n"
-            '1. "proveedor": Nombre de la empresa emisora o proveedor.\n'
-            '2. "cif": NIF o CIF del proveedor (si aparece, si no pon "").\n'
-            '3. "fecha": Fecha del documento en formato DD/MM/AAAA (si no, "").\n'
-            '4. "total": El importe total a pagar en número decimal (ejemplo: 154.50).'
-            " Si no encuentras el total, pon 0.0."
-        )
-
-        response = model.generate_content([prompt, imagen_pil])
-        texto_respuesta = response.text.strip()
-
-        # Limpiar posibles marcas de formato markdown de la respuesta de la IA
-        texto_respuesta = re.sub(r"^```json\s*", "", texto_respuesta)
-        texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
-
-        datos = json.loads(texto_respuesta)
-        return datos
-    except Exception as e:
-        # Si falla la IA por cualquier motivo, devolvemos None para gestionarlo de forma segura
+    # Convertir la primera página del PDF en imagen para que la IA la "vea"
+    imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=200)
+    if not imagenes:
+        st.error("No se pudo convertir el PDF a imagen.")
         return None
+
+    imagen_pil = imagenes[0]
+
+    prompt = (
+        "Analiza este documento comercial (albarán o factura). Extrae"
+        " estrictamente en formato JSON plano (sin bloques markdown adicionales"
+        " como ```json) los siguientes 4 campos:\n"
+        '1. "proveedor": Nombre de la empresa emisora o proveedor.\n'
+        '2. "cif": NIF o CIF del proveedor (si aparece, si no pon "").\n'
+        '3. "fecha": Fecha del documento en formato DD/MM/AAAA (si no, "").\n'
+        '4. "total": El importe total a pagar en número decimal (ejemplo:'
+        ' 154.50). Si no encuentras el total, pon 0.0.'
+    )
+
+    response = model.generate_content([prompt, imagen_pil])
+    texto_respuesta = response.text.strip()
+
+    # Limpiar posibles marcas de formato markdown de la respuesta de la IA
+    texto_respuesta = re.sub(r"^```json\s*", "", texto_respuesta)
+    texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
+
+    datos = json.loads(texto_respuesta)
+    return datos
 
 
 if uploaded_files:
@@ -111,8 +106,14 @@ if uploaded_files:
                 file_bytes = file.read()
                 file.seek(0)
 
-                # 1. Llamada a Gemini para extraer datos automáticamente
-                resultado_ia = extraer_datos_con_gemini(file_bytes, api_key_input)
+                # 1. Llamada a Gemini para extraer datos automáticamente con control de errores detallado
+                try:
+                    resultado_ia = extraer_datos_con_gemini(
+                        file_bytes, api_key_input
+                    )
+                except Exception as e:
+                    st.error(f"Error procesando {file.name}: {e}")
+                    resultado_ia = None
 
                 if resultado_ia:
                     proveedor = (
