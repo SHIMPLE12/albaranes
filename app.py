@@ -47,8 +47,8 @@ uploaded_files = st.file_uploader(
 def extraer_datos_con_gemini(pdf_bytes, api_key):
     """Envía el albarán convertido en imagen a Gemini para que extraiga los datos clave."""
     genai.configure(api_key=api_key)
-    # Usamos Gemini Flash (rápido, económico e ideal para visión de documentos)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    # Usamos Gemini 2.5 Flash (actualizado y compatible)
+    model = genai.GenerativeModel("gemini-2.5-flash")
 
     # Convertir la primera página del PDF en imagen para que la IA la "vea"
     imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=200)
@@ -162,7 +162,7 @@ if uploaded_files:
 
     # Si ya se procesaron los datos, mostramos los resultados y opciones de descarga
     if "df_albaranes" in st.session_state:
-        st.subheader("✏️ Validación y Corrección (Datos extraídos por la IA)")
+        st.subheader("✏️️ Validación y Corrección (Datos extraídos por la IA)")
         st.write(
             "La IA ha rellenado los campos automáticamente. Puedes verificar o"
             " corregir cualquier dato directamente en la tabla si lo necesitas."
