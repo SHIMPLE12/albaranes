@@ -45,12 +45,13 @@ uploaded_files = st.file_uploader(
 
 
 def extraer_datos_con_gemini(pdf_bytes, api_key):
-    """Envía el albarán convertido en imagen rápida a Gemini para extraer los datos."""
+    """Envía el albarán convertido en imagen a Gemini para que extraiga los datos clave."""
     genai.configure(api_key=api_key)
+    # Usamos Gemini 3.8 Flash (modelo moderno y altamente compatible)
     model = genai.GenerativeModel("gemini-3.8-flash")
 
-    # Bajamos el DPI a 110 para acelerar notablemente la conversión y subida
-    imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=110)
+    # Convertir la primera página del PDF en imagen para que la IA la "vea"
+    imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=200)
     if not imagenes:
         return None
 
@@ -108,13 +109,14 @@ if uploaded_files:
                         file_bytes, api_key_input
                     )
                 except Exception as e:
+                    # Si falla, intentamos una segunda opción por si acaso con gemini-2.5-flash
                     try:
                         genai.configure(api_key=api_key_input)
                         model_fallback = genai.GenerativeModel(
                             "gemini-2.5-flash"
                         )
                         imagenes = convert_from_bytes(
-                            file_bytes, first_page=1, last_page=1, dpi=110
+                            file_bytes, first_page=1, last_page=1, dpi=200
                         )
                         prompt = (
                             "Extrae en JSON plano con claves proveedor, cif,"
@@ -177,7 +179,7 @@ if uploaded_files:
 
             st.session_state["df_albaranes"] = pd.DataFrame(detalle_albaranes)
             st.session_state["proveedores_pdfs"] = proveedores_pdfs
-            st.success("¡Procesamiento ultrarrápido completado con éxito!")
+            st.success("¡Procesamiento completado con éxito por la IA!")
 
     # Si ya se procesaron los datos, mostramos los resultados y opciones de descarga
     if "df_albaranes" in st.session_state:
@@ -231,7 +233,7 @@ if uploaded_files:
                 nombre_csv = "detalle_completo_albaranes.csv"
 
             st.download_button(
-                label="⬇️️ Descargar Informe CSV Definitivo",
+                label="⬇️ Descargar Informe CSV Definitivo",
                 data=csv_data,
                 file_name=nombre_csv,
                 mime="text/csv",
