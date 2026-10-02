@@ -16,7 +16,7 @@ st.title("🤖 Gestor y Lector IA de Albaranes (Powered by Gemini)")
 st.write(
     "Automatiza tu negocio. Sube los albaranes y la Inteligencia Artificial de"
     " Google Gemini extraerá automáticamente los datos y unificará los"
-    " documentos por proveedor."
+    " documents por proveedor."
 )
 
 # --- BARRA LATERAL PARA CONFIGURAR LA API KEY ---
@@ -44,32 +44,25 @@ uploaded_files = st.file_uploader(
 
 
 def extraer_datos_con_gemini(pdf_bytes, api_key):
-    """Extrae el texto digital del PDF y se lo envía a Gemini para una lectura precisa."""
+    """Envía el PDF nativamente a Gemini para extraer los datos de forma infalible."""
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-3.8-flash")
-
-    # Extraer texto del PDF digital
-    reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
-    texto_pdf = ""
-    for page in reader.pages:
-        t = page.extract_text()
-        if t:
-            texto_pdf += t + "\n"
-
-    if not texto_pdf.strip():
-        return None
+    # Usamos Gemini Flash con soporte nativo de documentos PDF
+    model = genai.GenerativeModel("gemini-1.5-flash")
 
     prompt = (
-        "Analiza el siguiente texto extraído de un albarán o factura comercial."
-        " Extrae estrictamente en formato JSON puro, sin explicaciones ni"
-        " bloques markdown de código (nada de ```json), exactamente con estas 4"
-        " claves:\n"
-        '{"proveedor": "Nombre de la empresa emisora", "cif": "NIF o CIF o vacio", '
-        '"fecha": "DD/MM/AAAA o vacio", "total": 0.0}\n\nTexto del'
-        f" documento:\n{texto_pdf[:4000]}"
+        "Analiza este documento PDF comercial (albarán o factura). Extrae"
+        " estrictamente en formato JSON puro, sin explicaciones ni bloques"
+        " markdown de código (nada de ```json), exactamente con estas 4 claves:\n"
+        '{"proveedor": "Nombre exacto de la empresa emisora", "cif": "NIF o CIF'
+        ' o vacio", "fecha": "DD/MM/AAAA o vacio", "total": 0.0}'
     )
 
-    response = model.generate_content(prompt)
+    # Enviamos el PDF en formato bytes de forma nativa a la IA
+    response = model.generate_content([
+        prompt,
+        {"mime_type": "application/pdf", "data": pdf_bytes},
+    ])
+
     texto_respuesta = response.text.strip()
 
     # Limpiar posibles marcas de formato markdown
@@ -113,6 +106,7 @@ if uploaded_files:
                         file_bytes, api_key_input
                     )
                 except Exception as e:
+                    st.error(f"Error procesando {file.name}: {e}")
                     resultado_ia = None
 
                 if resultado_ia:
