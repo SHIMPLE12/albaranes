@@ -47,8 +47,8 @@ uploaded_files = st.file_uploader(
 def extraer_datos_con_gemini(pdf_bytes, api_key):
     """Envía el albarán convertido en imagen a Gemini para que extraiga los datos clave."""
     genai.configure(api_key=api_key)
-    # Usamos Gemini 3.8 Flash (modelo moderno y altamente compatible)
-    model = genai.GenerativeModel("gemini-3.8-flash")
+    # Usamos gemini-1.5-flash (modelo estándar rápido y altamente compatible con visión)
+    model = genai.GenerativeModel("gemini-1.5-flash")
 
     # Convertir la primera página del PDF en imagen para que la IA la "vea"
     imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=200)
@@ -109,11 +109,11 @@ if uploaded_files:
                         file_bytes, api_key_input
                     )
                 except Exception as e:
-                    # Si falla, intentamos una segunda opción por si acaso con gemini-2.5-flash
+                    # Si falla, intentamos una segunda opción de respaldo
                     try:
                         genai.configure(api_key=api_key_input)
                         model_fallback = genai.GenerativeModel(
-                            "gemini-2.5-flash"
+                            "gemini-1.5-pro"
                         )
                         imagenes = convert_from_bytes(
                             file_bytes, first_page=1, last_page=1, dpi=200
