@@ -9,6 +9,8 @@ import pandas as pd
 import pypdf
 import streamlit as st
 import plotly.express as px
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 # Configuración de la página
 st.set_page_config(
@@ -193,7 +195,7 @@ if uploaded_files:
             num_rows="fixed",
         )
 
-        # Guardar el dataframe editado en session_state para que esté disponible globalmente
+        # Guardar el dataframe editado en session_state para gráficos y Excel
         st.session_state["df_resultados"] = df_editado
 
         # --- RESUMEN CONSOLIDADO POR PROVEEDOR ---
@@ -226,10 +228,10 @@ if uploaded_files:
             )
 
             if "Resumen" in tipo_csv:
-                csv_data = df_resumen.to_csv(index=False).encode("utf-8")
+                csv_data = df_resumen.to_csv(index=False, sep=";", encoding="utf-8-sig").encode("utf-8-sig")
                 nombre_csv = "resumen_contable_proveedores.csv"
             else:
-                csv_data = df_editado.to_csv(index=False).encode("utf-8")
+                csv_data = df_editado.to_csv(index=False, sep=";", encoding="utf-8-sig").encode("utf-8-sig")
                 nombre_csv = "detalle_completo_albaranes.csv"
 
             st.download_button(
@@ -266,7 +268,7 @@ else:
         " lateral para comenzar."
     )
 
-# --- ADICIÓN: Gráficos y Exportación a Excel Profesional ---
+# --- GRÁFICOS Y EXPORTACIÓN A EXCEL PROFESIONAL ---
 if "df_resultados" in st.session_state and not st.session_state["df_resultados"].empty:
     st.markdown("---")
     st.subheader("📊 Análisis y Gráficos de Proveedores")
@@ -283,7 +285,7 @@ if "df_resultados" in st.session_state and not st.session_state["df_resultados"]
         st.plotly_chart(fig_tarta, use_container_width=True)
 
     st.markdown("---")
-    st.subheader("📥 Descargar para Contabilidad")
+    st.subheader("📥 Descargar para Contabilidad (Excel Estilizado)")
 
     # Crear el archivo Excel en memoria con dos pestañas (.xlsx)
     output = io.BytesIO()
@@ -295,12 +297,61 @@ if "df_resultados" in st.session_state and not st.session_state["df_resultados"]
         
         df_resumen_contable.to_excel(writer, sheet_name='Resumen Contable', index=False)
         st.session_state["df_resultados"].to_excel(writer, sheet_name='Detalle Facturas', index=False)
-    
+        
+        # --- APLICAR ESTILOS PROFESIONALES (Cabecera azul y ancho de columnas) ---
+        workbook = writer.book
+        
+        # Definir estilos
+        header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid") # Azul corporativo oscuro
+        align_center = Alignment(horizontal="center", vertical="center")
+        align_left = Alignment(horizontal="left", vertical="center")
+        border_thin = Border(
+            left=Side(style='thin', color='D9D9D9'),
+            right=Side(style='thin', color='D9D9D9'),
+            top=Side(style='thin', color='D9D9D9'),
+            bottom=Side(style='thin', color='D9D9D9')
+        )
+
+        for sheetname in workbook.sheetnames:
+            sheet = workbook[sheetname]
+            
+            # Formatear la fila de cabecera
+            for col_num in range(1, sheet.max_column + 1):
+                cell = sheet.cell(row=1, column=col_num)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = align_center
+
+            # Ajustar el ancho de las columnas automáticamente (dando más espacio holgado a Proveedor)
+            for col in sheet.columns:
+                max_len = 0
+                col_letter = get_column_letter(col[0].column)
+                
+                for cell in col:
+                    if cell.value:
+                        max_len = max(max_len, len(str(cell.value)))
+                
+                # Dar un ancho mínimo generoso, especialmente a la columna de Proveedor (columna A o B)
+                ancho_calculado = max(max_len + 5, 15)
+                if col_letter == 'A':  # Forzar que la columna Proveedor sea mucho más ancha
+                    ancho_calculado = max(ancho_calculado, 38)
+                
+                sheet.column_dimensions[col_letter].width = ancho_calculado
+                
+                # Aplicar bordes y alineación a todas las celdas de datos
+                for cell in col:
+                    cell.border = border_thin
+                    if cell.row > 1:
+                        if isinstance(cell.value, (int, float)):
+                            cell.alignment = Alignment(horizontal="right", vertical="center")
+                        else:
+                            cell.alignment = align_left
+
     excel_data = output.getvalue()
 
-    # Botón actualizado para descargar .xlsx
     st.download_button(
-        label="📊 Descargar Informe Completo en Excel (.xlsx)",
+        label="📊 Descargar Informe Completo en Excel (.xlsx) con Estilo",
         data=excel_data,
         file_name="resumen_contable_facturas.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
