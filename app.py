@@ -8,6 +8,7 @@ from pdf2image import convert_from_bytes
 import pandas as pd
 import pypdf
 import streamlit as st
+import plotly.express as px
 
 # Configuración de la página
 st.set_page_config(
@@ -192,6 +193,9 @@ if uploaded_files:
             num_rows="fixed",
         )
 
+        # Guardar el dataframe editado en session_state para que esté disponible globalmente
+        st.session_state["df_resultados"] = df_editado
+
         # --- RESUMEN CONSOLIDADO POR PROVEEDOR ---
         st.subheader(
             "📊 Resumen Consolidado por Proveedor (Listo para Contabilidad)"
@@ -229,7 +233,7 @@ if uploaded_files:
                 nombre_csv = "detalle_completo_albaranes.csv"
 
             st.download_button(
-                label="⬇️️ Descargar Informe CSV Definitivo",
+                label="⬇ Descargar Informe CSV Definitivo",
                 data=csv_data,
                 file_name=nombre_csv,
                 mime="text/csv",
@@ -261,72 +265,40 @@ else:
         "👆 Sube tus albaranes y configura tu clave API de Gemini en la barra"
         " lateral para comenzar."
     )
+
 # --- ADICIÓN: Gráficos y Exportación a Excel Profesional ---
-if 'df_resultados' in locals() and not df_resultados.empty:
+if "df_resultados" in st.session_state and not st.session_state["df_resultados"].empty:
     st.markdown("---")
     st.subheader("📊 Análisis y Gráficos de Proveedores")
     
-    col1, col2 = st.columns(2)
-    df_agrupado = df_resultados.groupby('Proveedor')['Total (€)'].sum().reset_index()
+    col_g1, col_g2 = st.columns(2)
+    df_agrupado = st.session_state["df_resultados"].groupby('Proveedor')['Total (€)'].sum().reset_index()
     
-    with col1:
+    with col_g1:
         fig_barras = px.bar(df_agrupado, x='Proveedor', y='Total (€)', title="Gasto por Proveedor")
         st.plotly_chart(fig_barras, use_container_width=True)
         
-    with col2:
+    with col_g2:
         fig_tarta = px.pie(df_agrupado, names='Proveedor', values='Total (€)', title="Porcentaje del Gasto")
         st.plotly_chart(fig_tarta, use_container_width=True)
 
     st.markdown("---")
     st.subheader("📥 Descargar para Contabilidad")
 
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_resumen_contable = df_resultados.groupby(['Proveedor', 'CIF']).agg(
-            N_Facturas=('Archivo', 'count'),
-            Total_Euros=('Total (€)', 'sum')
-        ).reset_index()
-        
-        df_resumen_contable.to_excel(writer, sheet_name='Resumen Contable', index=False)
-        df_resultados.to_excel(writer, sheet_name='Detalle Facturas', index=False)
-    
-    excel_data = output.getvalue()
-
-    st.download_button(
-    st.markdown("---")
-    st.subheader("📥 Descargar para Contabilidad")
-
     # Crear el archivo Excel en memoria con dos pestañas (.xlsx)
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_resumen_contable = df_resultados.groupby(['Proveedor', 'CIF']).agg(
+        df_resumen_contable = st.session_state["df_resultados"].groupby(['Proveedor', 'CIF']).agg(
             N_Facturas=('Archivo', 'count'),
             Total_Euros=('Total (€)', 'sum')
         ).reset_index()
         
         df_resumen_contable.to_excel(writer, sheet_name='Resumen Contable', index=False)
-        df_resultados.to_excel(writer, sheet_name='Detalle Facturas', index=False)
+        st.session_state["df_resultados"].to_excel(writer, sheet_name='Detalle Facturas', index=False)
     
     excel_data = output.getvalue()
 
-    # Botón actualizado para descargar .xlsx en lugar de .csv
-   st.markdown("---")
-    st.subheader("📥 Descargar para Contabilidad")
-
-    # Crear el archivo Excel en memoria con dos pestañas (.xlsx)
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_resumen_contable = df_resultados.groupby(['Proveedor', 'CIF']).agg(
-            N_Facturas=('Archivo', 'count'),
-            Total_Euros=('Total (€)', 'sum')
-        ).reset_index()
-        
-        df_resumen_contable.to_excel(writer, sheet_name='Resumen Contable', index=False)
-        df_resultados.to_excel(writer, sheet_name='Detalle Facturas', index=False)
-    
-    excel_data = output.getvalue()
-
-    # Botón actualizado para descargar .xlsx en lugar de .csv
+    # Botón actualizado para descargar .xlsx
     st.download_button(
         label="📊 Descargar Informe Completo en Excel (.xlsx)",
         data=excel_data,
