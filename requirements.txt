@@ -1,5 +1,7 @@
 streamlit
-pandas
-pypdf
-pdf2image
 google-generativeai
+pandas
+pdf2image
+pypdf
+openpyxl
+plotly
