@@ -310,6 +310,23 @@ if 'df_resultados' in locals() and not df_resultados.empty:
     excel_data = output.getvalue()
 
     # Botón actualizado para descargar .xlsx en lugar de .csv
+   st.markdown("---")
+    st.subheader("📥 Descargar para Contabilidad")
+
+    # Crear el archivo Excel en memoria con dos pestañas (.xlsx)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_resumen_contable = df_resultados.groupby(['Proveedor', 'CIF']).agg(
+            N_Facturas=('Archivo', 'count'),
+            Total_Euros=('Total (€)', 'sum')
+        ).reset_index()
+        
+        df_resumen_contable.to_excel(writer, sheet_name='Resumen Contable', index=False)
+        df_resultados.to_excel(writer, sheet_name='Detalle Facturas', index=False)
+    
+    excel_data = output.getvalue()
+
+    # Botón actualizado para descargar .xlsx en lugar de .csv
     st.download_button(
         label="📊 Descargar Informe Completo en Excel (.xlsx)",
         data=excel_data,
