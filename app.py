@@ -17,29 +17,19 @@ st.set_page_config(
     page_title="Gestor IA Pro de Albaranes", page_icon="🤖", layout="wide"
 )
 
-st.title("🤖 Gestor y Lector IA de Albaranes (Powered by Gemini)")
+st.title("🤖 Gestor y Lector IA de Albaranes")
 st.write(
-    "Automatiza tu negocio. Sube los albaranes y la Inteligencia Artificial de"
-    " Google Gemini extraerá automáticamente los datos y unificará los"
-    " documentos por proveedor."
+    "Automatiza tu negocio. Sube los albaranes y la Inteligencia Artificial "
+    "extraerá automáticamente los datos y unificará los documentos por proveedor."
 )
 
-# --- BARRA LATERAL PARA CONFIGURAR LA API KEY ---
-st.sidebar.header("🔑 Configuración de la IA")
-api_key_input = st.sidebar.text_input(
-    "Introduce tu clave API de Gemini:",
-    type="password",
-    help=(
-        "Consíguela gratis en aistudio.google.com (Crea tu clave y pégala"
-        " aquí)."
-    ),
-)
-
-st.sidebar.info(
-    "💡 **Consejo comercial:** Esta app lee los albaranes de forma autónoma"
-    " gracias a la visión artificial de Gemini. Ideal para cobrar una"
-    " suscripción mensual a empresas o gestorías."
-)
+# --- CONFIGURACIÓN INTERNA DE LA API (SIN PEDÍRSELA AL CLIENTE) ---
+try:
+    # Intenta leerla de forma segura desde los secretos de Streamlit Cloud
+    api_key_interna = st.secrets["GEMINI_API_KEY"]
+except:
+    # Opcional para pruebas locales: pon tu clave de API aquí directamente entre comillas si lo deseas
+    api_key_interna = ""
 
 uploaded_files = st.file_uploader(
     "Sube tus albaranes y facturas en PDF",
@@ -81,11 +71,9 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
 
 
 if uploaded_files:
-    if not api_key_input:
+    if not api_key_interna:
         st.error(
-            "⚠️ Por favor, introduce tu Clave API de Gemini en la barra lateral"
-            " izquierda para que la inteligencia artificial pueda leer los"
-            " albaranes."
+            "⚠️ Error de configuración en el servidor: No se ha detectado la clave API interna de Gemini."
         )
     else:
         st.success(
@@ -109,12 +97,11 @@ if uploaded_files:
                 resultado_ia = None
                 try:
                     resultado_ia = extraer_datos_con_gemini(
-                        file_bytes, api_key_input
+                        file_bytes, api_key_interna
                     )
                 except Exception as e:
-                    # Intento de respaldo secundario por si ocurre algún fallo puntual
                     try:
-                        genai.configure(api_key=api_key_input)
+                        genai.configure(api_key=api_key_interna)
                         model_fallback = genai.GenerativeModel("gemini-3.8-flash")
                         imagenes = convert_from_bytes(
                             file_bytes, first_page=1, last_page=1, dpi=200
@@ -167,7 +154,6 @@ if uploaded_files:
                     "Total (€)": round(total, 2),
                 })
 
-                # Agrupar páginas físicas en el PDF unificado del proveedor
                 if proveedor not in proveedores_pdfs:
                     proveedores_pdfs[proveedor] = pypdf.PdfWriter()
 
@@ -181,7 +167,6 @@ if uploaded_files:
             st.session_state["proveedores_pdfs"] = proveedores_pdfs
             st.success("¡Procesamiento completado con éxito por la IA!")
 
-    # Mostrar resultados y opciones de descarga
     if "df_albaranes" in st.session_state:
         st.subheader("✏️ Validación y Corrección (Datos extraídos por la IA)")
         st.write(
@@ -195,10 +180,8 @@ if uploaded_files:
             num_rows="fixed",
         )
 
-        # Guardar el dataframe editado en session_state para gráficos y Excel
         st.session_state["df_resultados"] = df_editado
 
-        # --- RESUMEN CONSOLIDADO POR PROVEEDOR ---
         st.subheader(
             "📊 Resumen Consolidado por Proveedor (Listo para Contabilidad)"
         )
@@ -264,11 +247,9 @@ if uploaded_files:
 
 else:
     st.info(
-        "👆 Sube tus albaranes y configura tu clave API de Gemini en la barra"
-        " lateral para comenzar."
+        "👆 Sube tus albaranes en PDF para comenzar a procesarlos automáticamente."
     )
 
-# --- GRÁFICOS Y EXPORTACIÓN A EXCEL PROFESIONAL ---
 if "df_resultados" in st.session_state and not st.session_state["df_resultados"].empty:
     st.markdown("---")
     st.subheader("📊 Análisis y Gráficos de Proveedores")
@@ -287,7 +268,6 @@ if "df_resultados" in st.session_state and not st.session_state["df_resultados"]
     st.markdown("---")
     st.subheader("📥 Descargar para Contabilidad (Excel Estilizado)")
 
-    # Crear el archivo Excel en memoria con dos pestañas (.xlsx)
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_resumen_contable = st.session_state["df_resultados"].groupby(['Proveedor', 'CIF']).agg(
@@ -298,12 +278,10 @@ if "df_resultados" in st.session_state and not st.session_state["df_resultados"]
         df_resumen_contable.to_excel(writer, sheet_name='Resumen Contable', index=False)
         st.session_state["df_resultados"].to_excel(writer, sheet_name='Detalle Facturas', index=False)
         
-        # --- APLICAR ESTILOS PROFESIONALES (Cabecera azul y ancho de columnas) ---
         workbook = writer.book
         
-        # Definir estilos
         header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid") # Azul corporativo oscuro
+        header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
         align_center = Alignment(horizontal="center", vertical="center")
         align_left = Alignment(horizontal="left", vertical="center")
         border_thin = Border(
@@ -316,14 +294,12 @@ if "df_resultados" in st.session_state and not st.session_state["df_resultados"]
         for sheetname in workbook.sheetnames:
             sheet = workbook[sheetname]
             
-            # Formatear la fila de cabecera
             for col_num in range(1, sheet.max_column + 1):
                 cell = sheet.cell(row=1, column=col_num)
                 cell.font = header_font
                 cell.fill = header_fill
                 cell.alignment = align_center
 
-            # Ajustar el ancho de las columnas automáticamente (dando más espacio holgado a Proveedor)
             for col in sheet.columns:
                 max_len = 0
                 col_letter = get_column_letter(col[0].column)
@@ -332,14 +308,12 @@ if "df_resultados" in st.session_state and not st.session_state["df_resultados"]
                     if cell.value:
                         max_len = max(max_len, len(str(cell.value)))
                 
-                # Dar un ancho mínimo generoso, especialmente a la columna de Proveedor (columna A o B)
                 ancho_calculado = max(max_len + 5, 15)
-                if col_letter == 'A':  # Forzar que la columna Proveedor sea mucho más ancha
+                if col_letter == 'A':
                     ancho_calculado = max(ancho_calculado, 38)
                 
                 sheet.column_dimensions[col_letter].width = ancho_calculado
                 
-                # Aplicar bordes y alineación a todas las celdas de datos
                 for cell in col:
                     cell.border = border_thin
                     if cell.row > 1:
