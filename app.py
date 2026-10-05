@@ -23,12 +23,10 @@ st.write(
     "extraerá automáticamente los datos y unificará los documentos por proveedor."
 )
 
-# --- CONFIGURACIÓN INTERNA DE LA API (SIN PEDÍRSELA AL CLIENTE) ---
+# --- CONFIGURACIÓN INTERNA DE LA API ---
 try:
-    # Intenta leerla de forma segura desde los secretos de Streamlit Cloud
     api_key_interna = st.secrets["GEMINI_API_KEY"]
 except:
-    # Opcional para pruebas locales: pon tu clave de API aquí directamente entre comillas si lo deseas
     api_key_interna = ""
 
 uploaded_files = st.file_uploader(
@@ -39,12 +37,11 @@ uploaded_files = st.file_uploader(
 
 
 def extraer_datos_con_gemini(pdf_bytes, api_key):
-    """Envía el albarán convertido en imagen a Gemini con gemini-3.8-flash."""
+    """Envía el albarán optimizado a Gemini Flash de forma rápida y segura."""
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-3.8-flash")
 
-    # Convertir la primera página del PDF en imagen
-    imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=200)
+    # 1. Convertir la primera página a una resolución óptima pero ligera (120 DPI en vez de 200)
+    imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=120)
     if not imagenes:
         return None
 
@@ -58,10 +55,16 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
         "Devuelve ÚNICAMENTE el objeto JSON válido, sin bloques de código markdown ni texto adicional."
     )
 
+    # 2. Usar un modelo Flash real y configurado con temperature=0 para velocidad máxima
+    model = genai.GenerativeModel(
+        model_name="gemini-2.5-flash",
+        generation_config={"temperature": 0.0}
+    )
+
     response = model.generate_content([prompt, imagen_pil])
     texto_respuesta = response.text.strip()
 
-    # Limpiar marcas de formato markdown si las hubiera
+    # Limpiar marcas de formato markdown
     texto_respuesta = re.sub(r"^```json\s*", "", texto_respuesta)
     texto_respuesta = re.sub(r"^```\s*", "", texto_respuesta)
     texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
@@ -99,30 +102,9 @@ if uploaded_files:
                     resultado_ia = extraer_datos_con_gemini(
                         file_bytes, api_key_interna
                     )
-                except Exception as e:
-                    try:
-                        genai.configure(api_key=api_key_interna)
-                        model_fallback = genai.GenerativeModel("gemini-3.8-flash")
-                        imagenes = convert_from_bytes(
-                            file_bytes, first_page=1, last_page=1, dpi=200
-                        )
-                        prompt_simple = (
-                            "Extrae estrictamente en JSON plano con claves proveedor, cif,"
-                            ' fecha, total (número): {"proveedor": "...", "cif":'
-                            ' "...", "fecha": "...", "total": 0.0}'
-                        )
-                        resp = model_fallback.generate_content(
-                            [prompt_simple, imagenes[0]]
-                        )
-                        limpio = re.sub(
-                            r"```json|```", "", resp.text
-                        ).strip()
-                        resultado_ia = json.loads(limpio)
-                    except Exception as err:
-                        st.error(
-                            f"No se pudo leer {file.name}. Error técnico: {err}"
-                        )
-                        resultado_ia = None
+                except Exception as err:
+                    st.error(f"No se pudo leer {file.name}. Error técnico: {err}")
+                    resultado_ia = None
 
                 if resultado_ia:
                     proveedor = (
@@ -168,23 +150,15 @@ if uploaded_files:
             st.success("¡Procesamiento completado con éxito por la IA!")
 
     if "df_albaranes" in st.session_state:
-        st.subheader("✏️ Validación y Corrección (Datos extraídos por la IA)")
-        st.write(
-            "La IA ha rellenado los campos automáticamente. Puedes verificar o"
-            " corregir cualquier dato directamente en la tabla si lo necesitas."
-        )
-
+        st.subheader("✏️️ Validación y Corrección (Datos extraídos por la IA)")
         df_editado = st.data_editor(
             st.session_state["df_albaranes"],
             use_container_width=True,
             num_rows="fixed",
         )
-
         st.session_state["df_resultados"] = df_editado
 
-        st.subheader(
-            "📊 Resumen Consolidado por Proveedor (Listo para Contabilidad)"
-        )
+        st.subheader("📊 Resumen Consolidado por Proveedor")
         df_resumen = (
             df_editado.groupby("Proveedor")[["Total (€)"]].sum().reset_index()
         )
@@ -237,7 +211,6 @@ if uploaded_files:
                     zip_file.writestr(nombre_archivo_pdf, pdf_bytes)
 
             zip_buffer.seek(0)
-
             st.download_button(
                 label="📦 Descargar ZIP con PDFs por Proveedor",
                 data=zip_buffer,
@@ -246,9 +219,7 @@ if uploaded_files:
             )
 
 else:
-    st.info(
-        "👆 Sube tus albaranes en PDF para comenzar a procesarlos automáticamente."
-    )
+    st.info("👆 Sube tus albaranes en PDF para comenzar a procesarlos automáticamente.")
 
 if "df_resultados" in st.session_state and not st.session_state["df_resultados"].empty:
     st.markdown("---")
@@ -279,7 +250,6 @@ if "df_resultados" in st.session_state and not st.session_state["df_resultados"]
         st.session_state["df_resultados"].to_excel(writer, sheet_name='Detalle Facturas', index=False)
         
         workbook = writer.book
-        
         header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
         header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
         align_center = Alignment(horizontal="center", vertical="center")
@@ -293,7 +263,6 @@ if "df_resultados" in st.session_state and not st.session_state["df_resultados"]
 
         for sheetname in workbook.sheetnames:
             sheet = workbook[sheetname]
-            
             for col_num in range(1, sheet.max_column + 1):
                 cell = sheet.cell(row=1, column=col_num)
                 cell.font = header_font
@@ -303,7 +272,6 @@ if "df_resultados" in st.session_state and not st.session_state["df_resultados"]
             for col in sheet.columns:
                 max_len = 0
                 col_letter = get_column_letter(col[0].column)
-                
                 for cell in col:
                     if cell.value:
                         max_len = max(max_len, len(str(cell.value)))
@@ -313,7 +281,6 @@ if "df_resultados" in st.session_state and not st.session_state["df_resultados"]
                     ancho_calculado = max(ancho_calculado, 38)
                 
                 sheet.column_dimensions[col_letter].width = ancho_calculado
-                
                 for cell in col:
                     cell.border = border_thin
                     if cell.row > 1:
@@ -323,7 +290,6 @@ if "df_resultados" in st.session_state and not st.session_state["df_resultados"]
                             cell.alignment = align_left
 
     excel_data = output.getvalue()
-
     st.download_button(
         label="📊 Descargar Informe Completo en Excel (.xlsx) con Estilo",
         data=excel_data,
