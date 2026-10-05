@@ -41,7 +41,7 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
     genai.configure(api_key=api_key)
     
     # Convertir la primera página a una resolución ligera (120 DPI)
-    imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=120)
+    imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=96)
     if not imagenes:
         return None
 
