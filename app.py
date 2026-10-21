@@ -37,15 +37,17 @@ uploaded_files = st.file_uploader(
 
 
 def extraer_datos_con_gemini(pdf_bytes, api_key):
-    """Extrae datos usando el modelo gemini-3.8-flash solicitado por la API."""
+    """Extrae datos de forma ultrarrápida priorizando texto nativo y optimizando tiempos."""
     genai.configure(api_key=api_key)
     
-    # 1. Intentar leer texto directo del PDF
+    # 1. Intentar extraer texto digital directo (muy rápido)
     texto_pdf = ""
     try:
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
-        if len(reader.pages) > 0:
-            texto_pdf = reader.pages[0].extract_text() or ""
+        for page in reader.pages:
+            t = page.extract_text()
+            if t:
+                texto_pdf += t + "\n"
     except Exception:
         pass
 
@@ -60,12 +62,12 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
         "Devuelve ÚNICAMENTE el objeto JSON válido, sin bloques de código markdown ni texto adicional."
     )
 
-    # 2. Si el PDF tiene texto digital, se manda como texto plano
-    if texto_pdf and len(texto_pdf.strip()) > 50:
-        response = model.generate_content([prompt, f"Texto de la factura:\n{texto_pdf}"])
+    # 2. Si el PDF tiene texto digital legible, se manda como texto plano (súper rápido)
+    if texto_pdf and len(texto_pdf.strip()) > 20:
+        response = model.generate_content([prompt, f"Texto del documento:\n{texto_pdf}"])
     else:
-        # 3. Si es un PDF escaneado (foto), usamos la imagen
-        imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=96)
+        # 3. Si es un PDF escaneado (foto), usamos la imagen con DPI ajustado
+        imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=72)
         if not imagenes:
             return None
         response = model.generate_content([prompt, imagenes[0]])
