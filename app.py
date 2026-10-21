@@ -36,7 +36,7 @@ uploaded_files = st.file_uploader(
 )
 
 
-def extraer_datos_con_gemini(def extraer_datos_con_gemini(pdf_bytes, api_key):
+def extraer_datos_con_gemini(pdf_bytes, api_key):
     """Extrae datos de forma ultrarrápida: lee texto directo si es digital, o usa imagen si es escaneado."""
     genai.configure(api_key=api_key)
     
@@ -49,7 +49,7 @@ def extraer_datos_con_gemini(def extraer_datos_con_gemini(pdf_bytes, api_key):
     except Exception:
         pass
 
-    # --- COLOCA EL CÓDIGO AQUÍ ---
+    # Modelo configurado de forma compatible con la librería
     model = genai.GenerativeModel("gemini-pro")
 
     prompt = (
@@ -80,50 +80,6 @@ def extraer_datos_con_gemini(def extraer_datos_con_gemini(pdf_bytes, api_key):
     try:
         datos = json.loads(texto_respuesta)
     except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", texto_respuesta, re.DOTALL)
-        if match:
-            datos = json.loads(match.group(0))
-        else:
-            raise ValueError("No se pudo parsear el JSON de la respuesta.")
-
-    return datos
-
-    # Configuración del modelo (gemini-1.5-flash)
-    model = genai.GenerativeModel(
-        model_name="gemini-pro",
-        generation_config={"temperature": 0.0}
-    )
-
-
-    prompt = (
-        "Eres un asistente contable experto. Analiza este documento comercial (albarán o factura) "
-        "y extrae la información en un formato JSON estricto con estas 4 claves exactas:\n"
-        '{"proveedor": "Nombre de la empresa emisora", "cif": "NIF o CIF o vacio", '
-        '"fecha": "DD/MM/AAAA o vacio", "total": 0.0}\n'
-        "Devuelve ÚNICAMENTE el objeto JSON válido, sin bloques de código markdown ni texto adicional."
-    )
-
-    # 2. Si el PDF tiene texto digital, se manda como texto plano
-    if texto_pdf and len(texto_pdf.strip()) > 50:
-        response = model.generate_content([prompt, f"Texto de la factura:\n{texto_pdf}"])
-    else:
-        # 3. Si es un PDF escaneado (foto), usamos la imagen
-        imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=96)
-        if not imagenes:
-            return None
-        response = model.generate_content([prompt, imagenes[0]])
-
-    texto_respuesta = response.text.strip()
-
-    # Limpiar marcas de formato markdown
-    texto_respuesta = re.sub(r"^```json\s*", "", texto_respuesta)
-    texto_respuesta = re.sub(r"^```\s*", "", texto_respuesta)
-    texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
-
-    try:
-        datos = json.loads(texto_respuesta)
-    except json.JSONDecodeError:
-        # Respaldo por Regex si la IA añade texto extra
         match = re.search(r"\{.*\}", texto_respuesta, re.DOTALL)
         if match:
             datos = json.loads(match.group(0))
