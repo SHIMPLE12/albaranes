@@ -280,4 +280,36 @@ if "df_resultados" in st.session_state and not st.session_state["df_resultados"]
 
         for sheetname in workbook.sheetnames:
             sheet = workbook[sheetname]
-            for col_num in range(1, sheet.max_column + 1
+            for col_num in range(1, sheet.max_column + 1):
+                cell = sheet.cell(row=1, column=col_num)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = align_center
+
+            for col in sheet.columns:
+                max_len = 0
+                col_letter = get_column_letter(col[0].column)
+                for cell in col:
+                    if cell.value:
+                        max_len = max(max_len, len(str(cell.value)))
+                
+                ancho_calculado = max(max_len + 5, 15)
+                if col_letter == 'A':
+                    ancho_calculado = max(ancho_calculado, 38)
+                
+                sheet.column_dimensions[col_letter].width = ancho_calculado
+                for cell in col:
+                    cell.border = border_thin
+                    if cell.row > 1:
+                        if isinstance(cell.value, (int, float)):
+                            cell.alignment = Alignment(horizontal="right", vertical="center")
+                        else:
+                            cell.alignment = align_left
+
+    excel_data = output.getvalue()
+    st.download_button(
+        label="📊 Descargar Informe Completo en Excel (.xlsx) con Estilo",
+        data=excel_data,
+        file_name="resumen_contable_facturas.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
