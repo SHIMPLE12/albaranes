@@ -36,21 +36,8 @@ uploaded_files = st.file_uploader(
 )
 
 
-def obtener_modelo_activo(api_key):
-    """Detecta automáticamente el primer modelo compatible disponible en la API."""
-    genai.configure(api_key=api_key)
-    try:
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                if 'flash' in m.name or 'pro' in m.name:
-                    return m.name
-    except Exception:
-        pass
-    return "gemini-1.5-flash"
-
-
 def extraer_datos_con_gemini(pdf_bytes, api_key):
-    """Extrae datos utilizando detección automática de modelo para evitar errores 404."""
+    """Extrae datos usando el modelo gemini-3.8-flash solicitado por la API."""
     genai.configure(api_key=api_key)
     
     # 1. Intentar leer texto directo del PDF
@@ -62,9 +49,8 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
     except Exception:
         pass
 
-    # Obtener modelo disponible dinámicamente
-    nombre_modelo = obtener_modelo_activo(api_key)
-    model = genai.GenerativeModel(nombre_modelo)
+    # Usamos el modelo requerido por la API de Google
+    model = genai.GenerativeModel("gemini-3.8-flash")
 
     prompt = (
         "Eres un asistente contable experto. Analiza este documento comercial (albarán o factura) "
