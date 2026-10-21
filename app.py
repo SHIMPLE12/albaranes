@@ -26,7 +26,7 @@ st.write(
 # --- CONFIGURACIÓN INTERNA DE LA API ---
 try:
     api_key_interna = st.secrets["GEMINI_API_KEY"]
-except:
+except Exception:
     api_key_interna = ""
 
 uploaded_files = st.file_uploader(
@@ -40,17 +40,18 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
     """Extrae datos de forma ultrarrápida: lee texto directo si es digital, o usa imagen si es escaneado."""
     genai.configure(api_key=api_key)
     
-    # 1. Intentar leer texto directo del PDF (Cero espera)
+    # 1. Intentar leer texto directo del PDF
     texto_pdf = ""
     try:
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         if len(reader.pages) > 0:
-            texto_pdf = reader.pages[0].extract_text()
-    except:
+            texto_pdf = reader.pages[0].extract_text() or ""
+    except Exception:
         pass
 
+    # Usar nombre de modelo válido (ej. gemini-1.5-flash)
     model = genai.GenerativeModel(
-        model_name="gemini-3.8-flash",
+        model_name="gemini-1.5-flash",
         generation_config={"temperature": 0.0}
     )
 
@@ -62,11 +63,11 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
         "Devuelve ÚNICAMENTE el objeto JSON válido, sin bloques de código markdown ni texto adicional."
     )
 
-    # 2. Si el PDF tiene texto digital, se manda como texto plano (¡Vuela!)
+    # 2. Si el PDF tiene texto digital, se manda como texto plano
     if texto_pdf and len(texto_pdf.strip()) > 50:
         response = model.generate_content([prompt, f"Texto de la factura:\n{texto_pdf}"])
     else:
-        # 3. Si es un PDF escaneado (foto), usamos la imagen de forma ligera
+        # 3. Si es un PDF escaneado (foto), usamos la imagen
         imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=96)
         if not imagenes:
             return None
@@ -79,7 +80,16 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
     texto_respuesta = re.sub(r"^```\s*", "", texto_respuesta)
     texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
 
-    datos = json.loads(texto_respuesta)
+    try:
+        datos = json.loads(texto_respuesta)
+    except json.JSONDecodeError:
+        # Intento de extracción por Regex si la IA añadió texto previo/posterior
+        match = re.search(r"\{.*\}", texto_respuesta, re.DOTALL)
+        if match:
+            datos = json.loads(match.group(0))
+        else:
+            raise ValueError("No se pudo parsear el JSON de la respuesta.")
+
     return datos
 
 
@@ -130,7 +140,7 @@ if uploaded_files:
                     fecha = str(resultado_ia.get("fecha", ""))
                     try:
                         total = float(resultado_ia.get("total", 0.0))
-                    except:
+                    except Exception:
                         total = 0.0
                 else:
                     proveedor = "PROVEEDOR_GENERAL"
@@ -159,7 +169,7 @@ if uploaded_files:
             st.session_state["proveedores_pdfs"] = proveedores_pdfs
             st.success("¡Procesamiento completado con éxito por la IA!")
 
-# Secciones protegidas para evitar pantallas en blanco si no hay datos procesados
+# Secciones protegidas
 if "df_albaranes" in st.session_state and not st.session_state["df_albaranes"].empty:
     st.subheader("✏ Validación y Corrección (Datos extraídos por la IA)")
     df_editado = st.data_editor(
