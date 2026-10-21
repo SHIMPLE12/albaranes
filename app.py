@@ -50,7 +50,7 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
         pass
 
     # Usamos gemini-1.5-pro para garantizar compatibilidad total con el endpoint v1beta actual
-    model = genai.GenerativeModel("gemini-1.5-pro")
+   model = genai.GenerativeModel("gemini-1.5-flash")
 
     prompt = (
         "Eres un asistente contable experto. Analiza este documento comercial (albarán o factura) "
