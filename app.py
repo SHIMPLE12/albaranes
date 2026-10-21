@@ -50,13 +50,13 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
         pass
 
     # Usar nombre de modelo válido (ej. gemini-1.5-flash)
-    model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
-        generation_config={"temperature": 0.0}
-    )
+
 
     prompt = (
-        "Eres un asistente contable experto. Analiza este documento comercial (albarán o factura) "
+        "Eres un asmodel = genai.GenerativeModel(
+        model_name="gemini-pro",
+        generation_config={"temperature": 0.0}
+    )istente contable experto. Analiza este documento comercial (albarán o factura) "
         "y extrae la información en un formato JSON estricto con estas 4 claves exactas:\n"
         '{"proveedor": "Nombre de la empresa emisora", "cif": "NIF o CIF o vacio", '
         '"fecha": "DD/MM/AAAA o vacio", "total": 0.0}\n'
