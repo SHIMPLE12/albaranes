@@ -49,8 +49,11 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
     except Exception:
         pass
 
-    # Modelo configurado de forma compatible con la librería
-    model = genai.GenerativeModel("gemini-pro")
+    # Configuración del modelo moderno (requiere google-generativeai >= 0.8.4)
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        generation_config={"temperature": 0.0}
+    )
 
     prompt = (
         "Eres un asistente contable experto. Analiza este documento comercial (albarán o factura) "
