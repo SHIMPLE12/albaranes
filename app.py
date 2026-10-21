@@ -36,8 +36,21 @@ uploaded_files = st.file_uploader(
 )
 
 
+def obtener_modelo_activo(api_key):
+    """Detecta automáticamente el primer modelo compatible disponible en la API."""
+    genai.configure(api_key=api_key)
+    try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                if 'flash' in m.name or 'pro' in m.name:
+                    return m.name
+    except Exception:
+        pass
+    return "gemini-1.5-flash"
+
+
 def extraer_datos_con_gemini(pdf_bytes, api_key):
-    """Extrae datos usando modelos compatibles con el entorno v1beta en caché."""
+    """Extrae datos utilizando detección automática de modelo para evitar errores 404."""
     genai.configure(api_key=api_key)
     
     # 1. Intentar leer texto directo del PDF
@@ -49,6 +62,10 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
     except Exception:
         pass
 
+    # Obtener modelo disponible dinámicamente
+    nombre_modelo = obtener_modelo_activo(api_key)
+    model = genai.GenerativeModel(nombre_modelo)
+
     prompt = (
         "Eres un asistente contable experto. Analiza este documento comercial (albarán o factura) "
         "y extrae la información en un formato JSON estricto con estas 4 claves exactas:\n"
@@ -57,16 +74,14 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
         "Devuelve ÚNICAMENTE el objeto JSON válido, sin bloques de código markdown ni texto adicional."
     )
 
-    # 2. Si el PDF tiene texto digital, usamos gemini-pro
+    # 2. Si el PDF tiene texto digital, se manda como texto plano
     if texto_pdf and len(texto_pdf.strip()) > 50:
-        model = genai.GenerativeModel("gemini-pro")
         response = model.generate_content([prompt, f"Texto de la factura:\n{texto_pdf}"])
     else:
-        # 3. Si es un PDF escaneado (imagen), usamos gemini-pro-vision
+        # 3. Si es un PDF escaneado (foto), usamos la imagen
         imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=96)
         if not imagenes:
             return None
-        model = genai.GenerativeModel("gemini-pro-vision")
         response = model.generate_content([prompt, imagenes[0]])
 
     texto_respuesta = response.text.strip()
