@@ -37,7 +37,7 @@ uploaded_files = st.file_uploader(
 
 
 def extraer_datos_con_gemini(pdf_bytes, api_key):
-    """Extrae datos de forma ultrarrápida: lee texto directo si es digital, o usa imagen si es escaneado."""
+    """Extrae datos usando modelos compatibles con el entorno v1beta en caché."""
     genai.configure(api_key=api_key)
     
     # 1. Intentar leer texto directo del PDF
@@ -49,9 +49,6 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
     except Exception:
         pass
 
-    # Inicialización del modelo con indentación limpia
-    model = genai.GenerativeModel("gemini-1.5-flash")
-
     prompt = (
         "Eres un asistente contable experto. Analiza este documento comercial (albarán o factura) "
         "y extrae la información en un formato JSON estricto con estas 4 claves exactas:\n"
@@ -60,14 +57,16 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
         "Devuelve ÚNICAMENTE el objeto JSON válido, sin bloques de código markdown ni texto adicional."
     )
 
-    # 2. Si el PDF tiene texto digital, se manda como texto plano
+    # 2. Si el PDF tiene texto digital, usamos gemini-pro
     if texto_pdf and len(texto_pdf.strip()) > 50:
+        model = genai.GenerativeModel("gemini-pro")
         response = model.generate_content([prompt, f"Texto de la factura:\n{texto_pdf}"])
     else:
-        # 3. Si es un PDF escaneado (foto), usamos la imagen
+        # 3. Si es un PDF escaneado (imagen), usamos gemini-pro-vision
         imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=96)
         if not imagenes:
             return None
+        model = genai.GenerativeModel("gemini-pro-vision")
         response = model.generate_content([prompt, imagenes[0]])
 
     texto_respuesta = response.text.strip()
