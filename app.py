@@ -49,14 +49,14 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
     except Exception:
         pass
 
-    # Usar nombre de modelo válido (ej. gemini-1.5-flash)
-
+    # Configuración del modelo (gemini-1.5-flash)
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        generation_config={"temperature": 0.0}
+    )
 
     prompt = (
-        "Eres un asmodel = genai.GenerativeModel(
-        model_name="gemini-pro",
-        generation_config={"temperature": 0.0}
-    )istente contable experto. Analiza este documento comercial (albarán o factura) "
+        "Eres un asistente contable experto. Analiza este documento comercial (albarán o factura) "
         "y extrae la información en un formato JSON estricto con estas 4 claves exactas:\n"
         '{"proveedor": "Nombre de la empresa emisora", "cif": "NIF o CIF o vacio", '
         '"fecha": "DD/MM/AAAA o vacio", "total": 0.0}\n'
@@ -83,7 +83,7 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
     try:
         datos = json.loads(texto_respuesta)
     except json.JSONDecodeError:
-        # Intento de extracción por Regex si la IA añadió texto previo/posterior
+        # Respaldo por Regex si la IA añade texto extra
         match = re.search(r"\{.*\}", texto_respuesta, re.DOTALL)
         if match:
             datos = json.loads(match.group(0))
