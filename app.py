@@ -49,11 +49,8 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
     except Exception:
         pass
 
-    # Modelo configurado con sufijo específico para evitar errores 404
-    model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash-001",
-        generation_config={"temperature": 0.0}
-    )
+    # Usar el modelo estándar que soporta la librería actual
+    model = genai.GenerativeModel("gemini-1.5-flash")
 
     prompt = (
         "Eres un asistente contable experto. Analiza este documento comercial (albarán o factura) "
