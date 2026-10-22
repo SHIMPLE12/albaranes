@@ -4,18 +4,17 @@ import json
 import io
 import pandas as pd
 from openai import OpenAI
+from PIL import Image
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 st.set_page_config(page_title="Gestor IA de Albaranes", layout="wide")
 
-# Validar clave de API
 if "OPENROUTER_API_KEY" not in st.secrets or not st.secrets["OPENROUTER_API_KEY"]:
     st.error("Por favor, añade OPENROUTER_API_KEY en los Secrets de Streamlit.")
     st.stop()
 
-# Configuración del cliente OpenRouter
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=st.secrets["OPENROUTER_API_KEY"].strip(),
@@ -26,13 +25,11 @@ client = OpenAI(
 )
 
 def crear_excel_profesional(datos):
-    """Crea un archivo Excel estilizado y profesional a partir de los datos del albarán."""
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Albarán Extraído"
     ws.views.sheetView[0].showGridLines = True
 
-    # Estilos
     navy_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
     soft_blue = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
     light_gray = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
@@ -43,17 +40,13 @@ def crear_excel_profesional(datos):
     font_normal = Font(name="Calibri", size=11)
     
     thin_border = Border(
-        left=Side(style='thin', color='D9D9D9'),
-        right=Side(style='thin', color='D9D9D9'),
-        top=Side(style='thin', color='D9D9D9'),
-        bottom=Side(style='thin', color='D9D9D9')
+        left=Side(style='thin', color='D9D9D9'), right=Side(style='thin', color='D9D9D9'),
+        top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9')
     )
 
-    # Título principal
     ws["A1"] = "RESUMEN DE ALBARÁN EXTRAÍDO"
     ws["A1"].font = font_title
     
-    # Bloque de Cabecera (Proveedor, NIF, Fecha, N° Albarán)
     datos_cabecera = [
         ("Proveedor:", datos.get("proveedor", "N/D"), "NIF / CIF:", datos.get("nif", "N/D")),
         ("Número Albarán:", datos.get("numero_albaran", "N/D"), "Fecha:", datos.get("fecha", "N/D")),
@@ -65,7 +58,6 @@ def crear_excel_profesional(datos):
         ws.cell(row=r_idx, column=3, value=row[2]).font = font_bold
         ws.cell(row=r_idx, column=4, value=row[3]).font = font_normal
 
-    # Tabla de Productos / Artículos
     start_row_items = 7
     headers = ["Descripción / Artículo", "Cantidad", "Precio Unitario", "Importe Total"]
     
@@ -86,32 +78,26 @@ def crear_excel_profesional(datos):
             total_prod = item.get("total", cant * precio if (isinstance(cant, (int,float)) and isinstance(precio, (int,float))) else 0.0)
 
             ws.cell(row=current_row, column=1, value=desc).font = font_normal
-            
             c_cant = ws.cell(row=current_row, column=2, value=cant)
             c_cant.font = font_normal
             c_cant.alignment = Alignment(horizontal="center")
-            
             c_prec = ws.cell(row=current_row, column=3, value=precio)
             c_prec.font = font_normal
             c_prec.number_format = '#,##0.00 €'
-            
             c_tot = ws.cell(row=current_row, column=4, value=total_prod)
             c_tot.font = font_normal
             c_tot.number_format = '#,##0.00 €'
 
-            # Bordes y zebra striping
             for col in range(1, 5):
                 cell = ws.cell(row=current_row, column=col)
                 cell.border = thin_border
                 if (current_row - start_row_items) % 2 == 0:
                     cell.fill = light_gray
-
             current_row += 1
     else:
         ws.cell(row=current_row, column=1, value="Sin detalles de línea detectados").font = font_normal
         current_row += 1
 
-    # Fila de Totales
     current_row += 1
     ws.cell(row=current_row, column=3, value="TOTAL ALBARÁN:").font = font_bold
     ws.cell(row=current_row, column=3).alignment = Alignment(horizontal="right")
@@ -123,7 +109,6 @@ def crear_excel_profesional(datos):
     c_final.number_format = '#,##0.00 €'
     c_final.border = thin_border
 
-    # Ajustar ancho de columnas automáticamente
     for col in ws.columns:
         max_len = 0
         col_letter = get_column_letter(col[0].column)
@@ -132,11 +117,9 @@ def crear_excel_profesional(datos):
                 max_len = max(max_len, len(str(cell.value)))
         ws.column_dimensions[col_letter].width = max(max_len + 4, 15)
 
-    # Exportar a BytesIO
     output = io.BytesIO()
     wb.save(output)
     return output.getvalue()
-
 
 st.title("⚡ Escáner de Albaranes B2B")
 st.write("Sube la imagen del albarán para extraer Proveedor, NIF, Importes y generar tu archivo Excel profesional.")
@@ -144,22 +127,25 @@ st.write("Sube la imagen del albarán para extraer Proveedor, NIF, Importes y ge
 archivo = st.file_uploader("Selecciona la imagen del albarán", type=["jpg", "jpeg", "png"])
 
 if archivo and st.button("Procesar Albarán"):
-    with st.spinner("Analizando albarán y extrayendo datos con NIF..."):
+    with st.spinner("Optimizando imagen y procesando con IA..."):
         try:
-            bytes_data = archivo.read()
-            base64_image = base64.b64encode(bytes_data).decode('utf-8')
-            mime_type = archivo.type
+            # Comprimir imagen para que pese menos y la IA responda al instante
+            image = Image.open(archivo)
+            image.thumbnail((1024, 1024))  # Redimensionar si es muy grande
+            buffered = io.BytesIO()
+            image.save(buffered, format="JPEG", quality=85)
+            base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
             prompt_json = """
-            Analiza el albarán proporcionado y responde ÚNICAMENTE con un objeto JSON válido con este formato:
+            Analiza el albarán proporcionado y responde ÚNICAMENTE con un objeto JSON válido con este formato exacto:
             {
-                "proveedor": "Nombre de la empresa o proveedor",
-                "nif": "NIF / CIF / VAT del proveedor",
+                "proveedor": "Nombre del proveedor",
+                "nif": "NIF / CIF del proveedor",
                 "fecha": "DD/MM/AAAA",
-                "numero_albaran": "Número o referencia del albarán",
+                "numero_albaran": "Número de albarán",
                 "articulos": [
                     {
-                        "descripcion": "Nombre o concepto del producto",
+                        "descripcion": "Concepto",
                         "cantidad": 1,
                         "precio_unitario": 0.0,
                         "total": 0.0
@@ -167,7 +153,7 @@ if archivo and st.button("Procesar Albarán"):
                 ],
                 "total": 0.0
             }
-            Devuelve solo el código JSON, sin textos explicativos ni markdown previo.
+            Devuelve solo el código JSON, sin markdown ni texto extra.
             """
 
             completion = client.chat.completions.create(
@@ -179,16 +165,16 @@ if archivo and st.button("Procesar Albarán"):
                             {"type": "text", "text": prompt_json},
                             {
                                 "type": "image_url",
-                                "image_url": {"url": f"data:{mime_type};base64,{base64_image}"}
+                                "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
                             }
                         ]
                     }
-                ]
+                ],
+                timeout=30 # Evita que se quede bloqueado eternamente
             )
 
             raw_response = completion.choices[0].message.content.strip()
             
-            # Limpiar bloques de markdown si la IA los devuelve
             if raw_response.startswith("```"):
                 raw_response = raw_response.split("```")[1]
                 if raw_response.startswith("json"):
@@ -203,13 +189,11 @@ if archivo and st.button("Procesar Albarán"):
         except Exception as e:
             st.error(f"Error al procesar el albarán: {str(e)}")
 
-# Visualización y descarga si ya está procesado
 if "datos_albaran" in st.session_state:
     st.success("¡Albarán analizado correctamente!")
     
     datos = st.session_state["datos_albaran"]
     
-    # Mostrar resumen estructurado en pantalla
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("🏢 Proveedor", datos.get("proveedor", "N/D"))
     col2.metric("🆔 NIF/CIF", datos.get("nif", "N/D"))
@@ -221,7 +205,6 @@ if "datos_albaran" in st.session_state:
         df_items = pd.DataFrame(datos.get("articulos"))
         st.dataframe(df_items, use_container_width=True)
 
-    # Botón para descargar el archivo .xlsx formateado
     st.download_button(
         label="📊 Descargar Albarán en Excel (.xlsx)",
         data=st.session_state["excel_bytes"],
