@@ -129,15 +129,14 @@ archivo = st.file_uploader("Selecciona la imagen del albarán", type=["jpg", "jp
 if archivo and st.button("Procesar Albarán"):
     with st.spinner("Optimizando imagen y procesando con IA..."):
         try:
-            # Comprimir imagen para que pese menos y la IA responda al instante
             image = Image.open(archivo)
-            image.thumbnail((1024, 1024))  # Redimensionar si es muy grande
+            image.thumbnail((1024, 1024))
             buffered = io.BytesIO()
             image.save(buffered, format="JPEG", quality=85)
             base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
             prompt_json = """
-            Analiza el albarán proporcionado y responde ÚNICAMENTE con un objeto JSON válido con este formato exacto:
+            Analiza el albarán proporcionado y responde ÚNICAMENTE con un objeto JSON válido (sin markdown, sin bloques de código ```json) con este formato exacto:
             {
                 "proveedor": "Nombre del proveedor",
                 "nif": "NIF / CIF del proveedor",
@@ -153,7 +152,6 @@ if archivo and st.button("Procesar Albarán"):
                 ],
                 "total": 0.0
             }
-            Devuelve solo el código JSON, sin markdown ni texto extra.
             """
 
             completion = client.chat.completions.create(
@@ -169,23 +167,25 @@ if archivo and st.button("Procesar Albarán"):
                             }
                         ]
                     }
-                ],
-                timeout=30 # Evita que se quede bloqueado eternamente
+                ]
             )
 
             raw_response = completion.choices[0].message.content.strip()
             
-            if raw_response.startswith("```"):
-                raw_response = raw_response.split("```")[1]
-                if raw_response.startswith("json"):
-                    raw_response = raw_response[4:]
+            # Limpieza robusta de formato JSON recibido
+            if "```json" in raw_response:
+                raw_response = raw_response.split("```json")[1].split("```")[0].strip()
+            elif "```" in raw_response:
+                raw_response = raw_response.split("```")[1].split("```")[0].strip()
             
-            datos_dict = json.loads(raw_response.strip())
+            datos_dict = json.loads(raw_response)
             
             st.session_state["datos_albaran"] = datos_dict
             st.session_state["excel_bytes"] = crear_excel_profesional(datos_dict)
             st.session_state["nombre_archivo"] = archivo.name
 
+        except json.JSONDecodeError:
+            st.error("La IA respondió con un formato no válido. Inténtalo de nuevo pulsando el botón.")
         except Exception as e:
             st.error(f"Error al procesar el albarán: {str(e)}")
 
