@@ -13,3 +13,8 @@ streamlit
 openai
 openpyxl
 pandas
+streamlit
+openai
+openpyxl
+pandas
+Pillow
