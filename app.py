@@ -1,33 +1,34 @@
 import streamlit as st
 import base64
-from groq import Groq
+from openai import OpenAI
 
-st.set_page_config(page_title="Gestor IA de Albaranes - Groq", layout="wide")
+st.set_page_config(page_title="Gestor IA de Albaranes", layout="wide")
 
-# Inicializar cliente de Groq con la clave de los secrets
-if "GROQ_API_KEY" in st.secrets:
-    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+# Configurar cliente para OpenRouter
+if "OPENROUTER_API_KEY" in st.secrets:
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=st.secrets["OPENROUTER_API_KEY"],
+    )
 else:
-    st.error("Por favor, añade GROQ_API_KEY en los Secrets de Streamlit.")
+    st.error("Por favor, añade OPENROUTER_API_KEY en los Secrets de Streamlit.")
     st.stop()
 
-st.title("⚡ Escáner Ultra-Rápido de Albaranes (Groq)")
+st.title("⚡ Escáner de Albaranes")
 st.write("Sube una foto del albarán para extraer los datos al instante.")
 
-# Subida de imagen
 archivo = st.file_uploader("Selecciona la imagen del albarán", type=["jpg", "jpeg", "png"])
 
 if archivo and st.button("Procesar Albarán"):
     with st.spinner("Analizando albarán..."):
         try:
-            # Convertir imagen a base64 para el modelo de visión
             bytes_data = archivo.read()
             base64_image = base64.b64encode(bytes_data).decode('utf-8')
             mime_type = archivo.type
 
-            # Llamada corregida con el modelo de visión compatible de Groq
-            chat_completion = client.chat.completions.create(
-                model="llama-3.2-11b-vision-preview",
+            # Llamada usando el router gratuito de OpenRouter
+            completion = client.chat.completions.create(
+                model="openrouter/free",
                 messages=[
                     {
                         "role": "user",
@@ -47,8 +48,7 @@ if archivo and st.button("Procesar Albarán"):
                 ]
             )
 
-            # Mostrar el resultado obtenido
-            resultado = chat_completion.choices[0].message.content
+            resultado = completion.choices[0].message.content
             st.success("¡Albarán procesado con éxito!")
             st.markdown(resultado)
 
