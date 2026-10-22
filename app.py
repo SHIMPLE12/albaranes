@@ -25,8 +25,9 @@ if archivo and st.button("Procesar Albarán"):
             base64_image = base64.b64encode(bytes_data).decode('utf-8')
             mime_type = archivo.type
 
-            # Llamada al modelo de visión de Groq
+            # Llamada corregida al modelo de visión de Groq
             chat_completion = client.chat.completions.create(
+                model="llama-3.2-11b-vision-instruct",
                 messages=[
                     {
                         "role": "user",
@@ -39,13 +40,12 @@ if archivo and st.button("Procesar Albarán"):
                                 "type": "image_url",
                                 "image_url": {
                                     "url": f"data:{mime_type};base64,{base64_image}"
-                                },
-                            },
-                        ],
+                                }
+                            }
+                        ]
                     }
-                ],
-                model="llama-3.2-11b-vision-instruct",
-            ]
+                ]
+            )
 
             # Mostrar el resultado obtenido
             resultado = chat_completion.choices[0].message.content
