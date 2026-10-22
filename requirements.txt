@@ -9,3 +9,7 @@ streamlit
 groq
 streamlit
 openai
+streamlit
+openai
+openpyxl
+pandas
