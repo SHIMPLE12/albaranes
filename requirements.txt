@@ -1,6 +1,7 @@
 streamlit
 google-genai
-openpyxl
 pandas
-Pillow
-PyMuPDF
+pypdf
+pdf2image
+plotly
+openpyxl
