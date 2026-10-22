@@ -4,15 +4,20 @@ from openai import OpenAI
 
 st.set_page_config(page_title="Gestor IA de Albaranes", layout="wide")
 
-# Configurar cliente para OpenRouter
-if "OPENROUTER_API_KEY" in st.secrets:
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=st.secrets["OPENROUTER_API_KEY"],
-    )
-else:
+# Validar que la API Key exista en Secrets
+if "OPENROUTER_API_KEY" not in st.secrets or not st.secrets["OPENROUTER_API_KEY"]:
     st.error("Por favor, añade OPENROUTER_API_KEY en los Secrets de Streamlit.")
     st.stop()
+
+# Configurar cliente para OpenRouter con los headers requeridos
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=st.secrets["OPENROUTER_API_KEY"].strip(),  # .strip() elimina espacios accidentales
+    default_headers={
+        "HTTP-Referer": "https://streamlit.io",  # Requerido por OpenRouter
+        "X-Title": "Gestor de Albaranes App",   # Requerido por OpenRouter
+    }
+)
 
 st.title("⚡ Escáner de Albaranes")
 st.write("Sube una foto del albarán para extraer los datos al instante.")
@@ -26,7 +31,7 @@ if archivo and st.button("Procesar Albarán"):
             base64_image = base64.b64encode(bytes_data).decode('utf-8')
             mime_type = archivo.type
 
-            # Llamada usando el router gratuito de OpenRouter
+            # Enviar imagen usando el router gratuito
             completion = client.chat.completions.create(
                 model="openrouter/free",
                 messages=[
