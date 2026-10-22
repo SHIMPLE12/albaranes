@@ -3,7 +3,7 @@ import json
 import re
 import time
 import zipfile
-import google.generativeai as genai
+from google import genai
 from pdf2image import convert_from_bytes
 import pandas as pd
 import pypdf
@@ -26,7 +26,7 @@ st.write(
 # --- CONFIGURACIÓN INTERNA DE LA API ---
 try:
     api_key_interna = st.secrets["GEMINI_API_KEY"]
-except:
+except Exception:
     api_key_interna = ""
 
 uploaded_files = st.file_uploader(
@@ -38,7 +38,7 @@ uploaded_files = st.file_uploader(
 
 def extraer_datos_con_gemini(pdf_bytes, api_key):
     """Extrae datos de forma ultrarrápida: lee texto directo si es digital, o usa imagen si es escaneado."""
-    genai.configure(api_key=api_key)
+    client = genai.Client(api_key=api_key.strip())
     
     # 1. Intentar leer texto directo del PDF (Cero espera)
     texto_pdf = ""
@@ -46,13 +46,8 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         if len(reader.pages) > 0:
             texto_pdf = reader.pages[0].extract_text()
-    except:
+    except Exception:
         pass
-
-    model = genai.GenerativeModel(
-        model_name="gemini-3.8-flash",
-        generation_config={"temperature": 0.0}
-    )
 
     prompt = (
         "Eres un asistente contable experto. Analiza este documento comercial (albarán o factura) "
@@ -62,15 +57,21 @@ def extraer_datos_con_gemini(pdf_bytes, api_key):
         "Devuelve ÚNICAMENTE el objeto JSON válido, sin bloques de código markdown ni texto adicional."
     )
 
-    # 2. Si el PDF tiene texto digital, se manda como texto plano (¡Vuela!)
+    # 2. Si el PDF tiene texto digital, se manda como texto plano
     if texto_pdf and len(texto_pdf.strip()) > 50:
-        response = model.generate_content([prompt, f"Texto de la factura:\n{texto_pdf}"])
+        response = client.models.generate_content(
+            model="gemini-3.8-flash",
+            contents=[prompt, f"Texto de la factura:\n{texto_pdf}"]
+        )
     else:
-        # 3. Si es un PDF escaneado (foto), usamos la imagen de forma ligera
+        # 3. Si es un PDF escaneado (foto), convertimos la primera página
         imagenes = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, dpi=96)
         if not imagenes:
             return None
-        response = model.generate_content([prompt, imagenes[0]])
+        response = client.models.generate_content(
+            model="gemini-3.8-flash",
+            contents=[prompt, imagenes[0]]
+        )
 
     texto_respuesta = response.text.strip()
 
@@ -130,7 +131,7 @@ if uploaded_files:
                     fecha = str(resultado_ia.get("fecha", ""))
                     try:
                         total = float(resultado_ia.get("total", 0.0))
-                    except:
+                    except Exception:
                         total = 0.0
                 else:
                     proveedor = "PROVEEDOR_GENERAL"
@@ -304,4 +305,3 @@ if "df_resultados" in st.session_state and not st.session_state["df_resultados"]
         file_name="resumen_contable_facturas.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
