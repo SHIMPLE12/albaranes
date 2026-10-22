@@ -1,33 +1,29 @@
 import streamlit as st
-import base64
 import json
 import io
 import pandas as pd
-from openai import OpenAI
+from google import genai
+from google.genai import types
 from PIL import Image
+import fitz  # PyMuPDF para leer PDFs
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-st.set_page_config(page_title="Gestor IA de Albaranes", layout="wide")
+st.set_page_config(page_title="Gestor IA de Albaranes y Facturas", layout="wide")
 
-if "OPENROUTER_API_KEY" not in st.secrets or not st.secrets["OPENROUTER_API_KEY"]:
-    st.error("Por favor, añade OPENROUTER_API_KEY en los Secrets de Streamlit.")
+# Validar clave de Google en los Secrets de Streamlit
+if "GEMINI_API_KEY" not in st.secrets or not st.secrets["GEMINI_API_KEY"]:
+    st.error("Por favor, añade GEMINI_API_KEY en los Secrets de Streamlit.")
     st.stop()
 
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=st.secrets["OPENROUTER_API_KEY"].strip(),
-    default_headers={
-        "HTTP-Referer": "https://streamlit.io",
-        "X-Title": "Gestor de Albaranes B2B",
-    }
-)
+# Inicializar cliente oficial de Google GenAI
+client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"].strip())
 
 def crear_excel_profesional(datos):
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Albarán Extraído"
+    ws.title = "Documento Extraído"
     ws.views.sheetView[0].showGridLines = True
 
     navy_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
@@ -44,12 +40,12 @@ def crear_excel_profesional(datos):
         top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9')
     )
 
-    ws["A1"] = "RESUMEN DE ALBARÁN EXTRAÍDO"
+    ws["A1"] = "RESUMEN DE DOCUMENTO EXTRAÍDO"
     ws["A1"].font = font_title
     
     datos_cabecera = [
         ("Proveedor:", datos.get("proveedor", "N/D"), "NIF / CIF:", datos.get("nif", "N/D")),
-        ("Número Albarán:", datos.get("numero_albaran", "N/D"), "Fecha:", datos.get("fecha", "N/D")),
+        ("N° Albarán/Factura:", datos.get("numero_albaran", "N/D"), "Fecha:", datos.get("fecha", "N/D")),
     ]
 
     for r_idx, row in enumerate(datos_cabecera, start=3):
@@ -99,7 +95,7 @@ def crear_excel_profesional(datos):
         current_row += 1
 
     current_row += 1
-    ws.cell(row=current_row, column=3, value="TOTAL ALBARÁN:").font = font_bold
+    ws.cell(row=current_row, column=3, value="TOTAL DOCUMENTO:").font = font_bold
     ws.cell(row=current_row, column=3).alignment = Alignment(horizontal="right")
     
     total_val = datos.get("total", 0.0)
@@ -121,27 +117,32 @@ def crear_excel_profesional(datos):
     wb.save(output)
     return output.getvalue()
 
-st.title("⚡ Escáner de Albaranes B2B")
-st.write("Sube la imagen del albarán para extraer Proveedor, NIF, Importes y generar tu archivo Excel profesional.")
+st.title("⚡ Escáner B2B Rápido de Albaranes y Facturas")
+st.write("Sube una foto o un archivo **PDF** para extraer los datos al instante y generar tu Excel profesional.")
 
-archivo = st.file_uploader("Selecciona la imagen del albarán", type=["jpg", "jpeg", "png"])
+archivo = st.file_uploader("Selecciona el documento (Imagen o PDF)", type=["jpg", "jpeg", "png", "pdf"])
 
-if archivo and st.button("Procesar Albarán"):
-    with st.spinner("Optimizando imagen y procesando con IA..."):
+if archivo and st.button("Procesar Documento"):
+    with st.spinner("Procesando a velocidad de rayo con Google Gemini..."):
         try:
-            image = Image.open(archivo)
-            image.thumbnail((1024, 1024))
-            buffered = io.BytesIO()
-            image.save(buffered, format="JPEG", quality=85)
-            base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            bytes_data = archivo.read()
+            
+            # Si es PDF, convertimos la primera página a imagen
+            if archivo.type == "application/pdf" or archivo.name.endswith(".pdf"):
+                doc = fitz.open(stream=bytes_data, filetype="pdf")
+                page = doc[0]
+                pix = page.get_pixmap(dpi=150)
+                image = Image.open(io.BytesIO(pix.tobytes("jpeg")))
+            else:
+                image = Image.open(io.BytesIO(bytes_data))
 
             prompt_json = """
-            Analiza el albarán proporcionado y responde ÚNICAMENTE con un objeto JSON válido (sin markdown, sin bloques de código ```json) con este formato exacto:
+            Analiza este albarán o factura y responde ÚNICAMENTE con un objeto JSON válido (sin formato markdown ni bloques de código) con esta estructura exacta:
             {
                 "proveedor": "Nombre del proveedor",
                 "nif": "NIF / CIF del proveedor",
                 "fecha": "DD/MM/AAAA",
-                "numero_albaran": "Número de albarán",
+                "numero_albaran": "Número de documento",
                 "articulos": [
                     {
                         "descripcion": "Concepto",
@@ -154,25 +155,14 @@ if archivo and st.button("Procesar Albarán"):
             }
             """
 
-            completion = client.chat.completions.create(
-                model="openrouter/free",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt_json},
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
-                            }
-                        ]
-                    }
-                ]
+            # Llamada rápida utilizando el modelo oficial de Google Gemini
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=[image, prompt_json]
             )
 
-            raw_response = completion.choices[0].message.content.strip()
+            raw_response = response.text.strip()
             
-            # Limpieza robusta de formato JSON recibido
             if "```json" in raw_response:
                 raw_response = raw_response.split("```json")[1].split("```")[0].strip()
             elif "```" in raw_response:
@@ -185,19 +175,19 @@ if archivo and st.button("Procesar Albarán"):
             st.session_state["nombre_archivo"] = archivo.name
 
         except json.JSONDecodeError:
-            st.error("La IA respondió con un formato no válido. Inténtalo de nuevo pulsando el botón.")
+            st.error("La IA respondió con un formato no válido. Vuelve a intentarlo.")
         except Exception as e:
-            st.error(f"Error al procesar el albarán: {str(e)}")
+            st.error(f"Error al procesar el documento: {str(e)}")
 
 if "datos_albaran" in st.session_state:
-    st.success("¡Albarán analizado correctamente!")
+    st.success("¡Documento analizado a velocidad récord!")
     
     datos = st.session_state["datos_albaran"]
     
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("🏢 Proveedor", datos.get("proveedor", "N/D"))
     col2.metric("🆔 NIF/CIF", datos.get("nif", "N/D"))
-    col3.metric("📄 N° Albarán", datos.get("numero_albaran", "N/D"))
+    col3.metric("📄 N° Doc", datos.get("numero_albaran", "N/D"))
     col4.metric("💰 Total", f"{datos.get('total', 0)} €")
 
     st.markdown("### 📊 Vista previa del Excel generado")
@@ -206,8 +196,8 @@ if "datos_albaran" in st.session_state:
         st.dataframe(df_items, use_container_width=True)
 
     st.download_button(
-        label="📊 Descargar Albarán en Excel (.xlsx)",
+        label="📊 Descargar Excel Profesional (.xlsx)",
         data=st.session_state["excel_bytes"],
-        file_name=f"Albaran_{datos.get('proveedor', 'Proveedor')}_{st.session_state['nombre_archivo'].split('.')[0]}.xlsx",
+        file_name=f"Documento_{datos.get('proveedor', 'Proveedor')}_{st.session_state['nombre_archivo'].split('.')[0]}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
