@@ -7,3 +7,5 @@ plotly
 openpyxl
 streamlit
 groq
+streamlit
+openai
