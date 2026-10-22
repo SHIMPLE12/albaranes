@@ -5,3 +5,5 @@ pandas
 pypdf
 plotly
 openpyxl
+streamlit
+groq
