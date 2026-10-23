@@ -1,7 +1,6 @@
 import streamlit as st
 from google import genai
 from PIL import Image
-import pillow_heic  # Permite leer fotos de iPhone (.heic)
 import pypdf
 import io
 import json
@@ -11,9 +10,6 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
-
-# Registrar formato HEIC para que Pillow pueda abrir fotos de iPhone
-pillow_heic.register_heic_opener()
 
 # Configuración de la página
 st.set_page_config(
@@ -33,10 +29,10 @@ if not api_key:
 else:
     client = genai.Client(api_key=api_key)
 
-    # Subida de archivos (móvil, PC y iPhone HEIC)
+    # Subida de archivos (PDF, PNG, JPG, JPEG)
     uploaded_files = st.file_uploader(
-        "Sube tus albaranes y facturas (PDF, JPG, PNG, HEIC):",
-        type=["pdf", "png", "jpg", "jpeg", "heic"],
+        "Sube tus albaranes y facturas (PDF, JPG, PNG):",
+        type=["pdf", "png", "jpg", "jpeg"],
         accept_multiple_files=True
     )
 
@@ -61,8 +57,8 @@ else:
         try:
             json_response = ""
             
-            # CASO 1: Imagen, foto de móvil o iPhone (Optimizada al máximo para ahorrar tokens de visión)
-            if file_ext in ['png', 'jpg', 'jpeg', 'heic']:
+            # CASO 1: Imagen o foto (Optimizada al máximo para ahorrar tokens de visión)
+            if file_ext in ['png', 'jpg', 'jpeg']:
                 imagen = Image.open(uploaded_file)
                 # Reducimos resolución máxima a 800x800 para consumir muchos menos tokens
                 imagen.thumbnail((800, 800))
