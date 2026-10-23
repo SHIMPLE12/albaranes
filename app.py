@@ -12,13 +12,13 @@ from openpyxl.utils import get_column_letter
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Gestor Inteligente de Albaranes y Facturas",
-    page_icon="📊",
+    page_title="Gestor IA Ultrarrápido Albaranes",
+    page_icon="⚡",
     layout="wide"
 )
 
-st.title("📊 Gestor Inteligente de Albaranes y Facturas")
-st.markdown("Modo Ultra-Rápido activado: extracción optimizada con IA, gráficos y exportación a Excel profesional.")
+st.title("⚡ Gestor IA Ultrarrápido de Albaranes y Facturas")
+st.markdown("Modo de alto rendimiento activado para procesamiento masivo en segundos.")
 
 # Obtener la API Key desde los secretos
 api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -28,40 +28,40 @@ if not api_key:
 else:
     client = genai.Client(api_key=api_key)
 
-    # Subida de archivos (móvil y PC)
+    # Subida masiva de archivos
     uploaded_files = st.file_uploader(
-        "Sube tus albaranes y facturas (PDF, JPG, PNG):",
+        "Sube tus documentos (PDF, JPG, PNG) para procesamiento masivo:",
         type=["pdf", "png", "jpg", "jpeg"],
         accept_multiple_files=True
     )
 
     def procesar_un_archivo(uploaded_file):
-        """Función optimizada para máxima velocidad con respuesta ligera de la IA"""
+        """Función optimizada con compresión extrema y respuesta directa"""
         file_name = uploaded_file.name
         file_ext = file_name.split('.')[-1].lower()
         
-        # Prompt ultracorto y directo para acelerar la respuesta del modelo
         prompt_extraccion = """
-        Extrae de este documento y devuélvelo en formato JSON exacto (sin texto adicional):
+        Extrae y devuelve SÓLO un JSON válido exacto:
         {
-            "proveedor": "Nombre del proveedor",
-            "nif_proveedor": "NIF o CIF",
+            "proveedor": "Nombre",
+            "nif_proveedor": "NIF/CIF",
             "fecha": "DD/MM/YYYY",
             "numero_factura": "Número",
             "importe_total": 0.0,
-            "conceptos_resumen": "Breve resumen"
+            "conceptos_resumen": "Resumen breve"
         }
         """
 
         try:
             json_response = ""
             
-            # CASO 1: Imagen o foto de móvil (Comprimida al máximo para subida instantánea)
+            # CASO 1: Imágenes o fotos de móvil (Compresión agresiva para velocidad instantánea)
             if file_ext in ['png', 'jpg', 'jpeg']:
                 imagen = Image.open(uploaded_file)
-                imagen.thumbnail((1024, 1024))
+                # Reducimos a 800px para que vuele por la red
+                imagen.thumbnail((800, 800))
                 img_byte_arr = io.BytesIO()
-                imagen.convert("RGB").save(img_byte_arr, format="JPEG", quality=75)
+                imagen.convert("RGB").save(img_byte_arr, format="JPEG", quality=65)
                 img_byte_arr.seek(0)
                 imagen_optimizada = Image.open(img_byte_arr)
                 
@@ -71,7 +71,7 @@ else:
                 )
                 json_response = response.text
 
-            # CASO 2: Documento PDF
+            # CASO 2: Documentos PDF
             elif file_ext == 'pdf':
                 pdf_reader = pypdf.PdfReader(uploaded_file)
                 texto_pdf = ""
@@ -91,7 +91,7 @@ else:
                     images = convert_from_bytes(uploaded_file.read())
                     if images:
                         img_pdf = images[0]
-                        img_pdf.thumbnail((1024, 1024))
+                        img_pdf.thumbnail((800, 800))
                         response = client.models.generate_content(
                             model='gemini-3.8-flash',
                             contents=[img_pdf, prompt_extraccion]
@@ -107,17 +107,17 @@ else:
             return {"archivo": file_name, "error": str(e)}
 
     if uploaded_files:
-        if st.button("⚡ Procesar a Máxima Velocidad", type="primary"):
+        if st.button("🚀 Procesar Lote a Máxima Velocidad", type="primary"):
             datos_tabla = []
             
-            # Procesamiento simultáneo en hilos
-            with st.spinner("🚀 Leyendo documentos en paralelo..."):
-                with ThreadPoolExecutor(max_workers=4) as executor:
+            # Procesamiento masivo en paralelo con hasta 10 hilos simultáneos
+            with st.spinner(f"⚡ Procesando {len(uploaded_files)} archivos simultáneamente en alta concurrencia..."):
+                with ThreadPoolExecutor(max_workers=10) as executor:
                     resultados = list(executor.map(procesar_un_archivo, uploaded_files))
             
             for res in resultados:
                 if "error" in res:
-                    st.error(f"❌ Error procesando {res['archivo']}: {res['error']}")
+                    st.error(f"❌ Error en {res['archivo']}: {res['error']}")
                 else:
                     datos_tabla.append(res)
 
