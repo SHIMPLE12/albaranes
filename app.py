@@ -7,6 +7,8 @@ import json
 import pandas as pd
 import plotly.express as px
 from concurrent.futures import ThreadPoolExecutor
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 # Configuración de la página
 st.set_page_config(
@@ -16,7 +18,7 @@ st.set_page_config(
 )
 
 st.title("📊 Gestor Inteligente de Albaranes y Facturas")
-st.markdown("Procesa tus documentos al instante, analiza gráficos y exporta a Excel con **resumen contable agrupado** y **detalle de facturas**.")
+st.markdown("Procesa tus documentos al instante, analiza gráficos y exporta a Excel con diseño profesional azul y pestañas organizadas.")
 
 # Obtener la API Key desde los secretos
 api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -57,7 +59,7 @@ else:
             # CASO 1: Imagen o foto de móvil
             if file_ext in ['png', 'jpg', 'jpeg']:
                 imagen = Image.open(uploaded_file)
-                imagen.thumbnail((1024, 1024)) # Reducción de peso para máxima velocidad
+                imagen.thumbnail((1024, 1024))
                 
                 response = client.models.generate_content(
                     model='gemini-3.8-flash',
@@ -93,7 +95,6 @@ else:
                         )
                         json_response = response.text
 
-            # Limpieza y parseo del JSON
             clean_json = json_response.replace("```json", "").replace("```", "").strip()
             parsed_data = json.loads(clean_json)
             parsed_data["archivo"] = file_name
@@ -106,7 +107,6 @@ else:
         if st.button("🚀 Procesar Documentos Ultrarrápido", type="primary"):
             datos_tabla = []
             
-            # Procesamiento paralelo en segundos con ThreadPoolExecutor
             with st.spinner("⚡ Procesando documentos simultáneamente con IA..."):
                 with ThreadPoolExecutor(max_workers=4) as executor:
                     resultados = list(executor.map(procesar_un_archivo, uploaded_files))
@@ -124,10 +124,8 @@ else:
     if "df_resultados" in st.session_state and not st.session_state["df_resultados"].empty:
         df = st.session_state["df_resultados"]
 
-        # Limpieza y tipado
         df["importe_total"] = pd.to_numeric(df["importe_total"], errors='coerce').fillna(0.0)
         
-        # Ordenar columnas de detalle
         columnas_ordenadas = ["archivo", "proveedor", "nif_proveedor", "fecha", "numero_factura", "importe_total", "conceptos_resumen"]
         columnas_existentes = [col for col in columnas_ordenadas if col in df.columns]
         df = df[columnas_existentes]
@@ -140,7 +138,6 @@ else:
         col2.metric("Gasto Total", f"{df['importe_total'].sum():,.2f} €")
         col3.metric("Proveedores Distintos", df["proveedor"].nunique())
 
-        # Tabla interactiva
         st.dataframe(df, use_container_width=True)
 
         # GRÁFICOS
@@ -156,13 +153,12 @@ else:
             fig_bar = px.bar(df, x="proveedor", y="importe_total", color="proveedor", title="Comparativa Importe por Proveedor")
             st.plotly_chart(fig_bar, use_container_width=True)
 
-        # EXPORTACIÓN EXCEL PROFESIONAL (CON 2 PESTAÑAS: Resumen Contable y Detalle Facturas)
+        # EXPORTACIÓN EXCEL PROFESIONAL CON ESTILO AZUL
         st.markdown("---")
         st.subheader("📥 Exportación de Datos Optimizada")
 
         col_ex, col_csv = st.columns(2)
 
-        # Generar DataFrame para Resumen Contable agrupado
         df_resumen_contable = df.groupby(["proveedor", "nif_proveedor"]).agg(
             N_Facturas=("numero_factura", "count"),
             Total_Euros=("importe_total", "sum")
@@ -170,15 +166,34 @@ else:
 
         output_excel = io.BytesIO()
         with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
-            # Pestaña 1 idéntica al modelo solicitado
             df_resumen_contable.to_excel(writer, index=False, sheet_name='Resumen Contable')
-            # Pestaña 2 con el detalle completo
             df.to_excel(writer, index=False, sheet_name='Detalle Facturas')
             
+            # Aplicar diseño profesional con cabecera azul
+            workbook = writer.book
+            header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+            header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            align_center = Alignment(horizontal="center", vertical="center")
+            
+            for sheetname in workbook.sheetnames:
+                sheet = workbook[sheetname]
+                # Estilizar cabecera
+                for col_num in range(1, sheet.max_column + 1):
+                    cell = sheet.cell(row=1, column=col_num)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = align_center
+                
+                # Ajustar ancho de columnas automáticamente
+                for col in sheet.columns:
+                    max_len = max(len(str(cell.value or '')) for cell in col)
+                    col_letter = get_column_letter(col[0].column)
+                    sheet.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
         excel_data = output_excel.getvalue()
 
         col_ex.download_button(
-            label="📊 Descargar Informe Excel Multihoja (.xlsx)",
+            label="📊 Descargar Informe Excel Estilizado (.xlsx)",
             data=excel_data,
             file_name="resumen_contable_facturas.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
