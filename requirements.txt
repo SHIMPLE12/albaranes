@@ -6,4 +6,3 @@ pdf2image
 pandas
 plotly
 openpyxl
-pillow-heic
