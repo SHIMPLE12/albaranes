@@ -7,7 +7,7 @@ import json
 import pandas as pd
 import plotly.express as px
 from concurrent.futures import ThreadPoolExecutor
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
 # Configuración de la página
@@ -18,7 +18,7 @@ st.set_page_config(
 )
 
 st.title("📊 Gestor Inteligente de Albaranes y Facturas")
-st.markdown("Procesa tus documentos al instante, analiza gráficos y exporta a Excel con diseño profesional azul y pestañas organizadas.")
+st.markdown("Procesa tus documentos de forma ultrarrápida, analiza gráficos y exporta tu informe contable en Excel con diseño profesional.")
 
 # Obtener la API Key desde los secretos
 api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -36,7 +36,7 @@ else:
     )
 
     def procesar_un_archivo(uploaded_file):
-        """Función optimizada para procesar un único archivo en paralelo"""
+        """Función ultrarrápida para procesar un único archivo con compresión de imagen previa"""
         file_name = uploaded_file.name
         file_ext = file_name.split('.')[-1].lower()
         
@@ -56,14 +56,19 @@ else:
         try:
             json_response = ""
             
-            # CASO 1: Imagen o foto de móvil
+            # CASO 1: Imagen o foto de móvil (Optimizada y comprimida para volar)
             if file_ext in ['png', 'jpg', 'jpeg']:
                 imagen = Image.open(uploaded_file)
-                imagen.thumbnail((1024, 1024))
+                # Redimensionar y comprimir a JPEG en memoria para reducir peso drásticamente
+                imagen.thumbnail((1280, 1280))
+                img_byte_arr = io.BytesIO()
+                imagen.convert("RGB").save(img_byte_arr, format="JPEG", quality=80)
+                img_byte_arr.seek(0)
+                imagen_optimizada = Image.open(img_byte_arr)
                 
                 response = client.models.generate_content(
                     model='gemini-3.8-flash',
-                    contents=[imagen, prompt_extraccion]
+                    contents=[imagen_optimizada, prompt_extraccion]
                 )
                 json_response = response.text
 
@@ -88,7 +93,7 @@ else:
                     images = convert_from_bytes(uploaded_file.read())
                     if images:
                         img_pdf = images[0]
-                        img_pdf.thumbnail((1024, 1024))
+                        img_pdf.thumbnail((1280, 1280))
                         response = client.models.generate_content(
                             model='gemini-3.8-flash',
                             contents=[img_pdf, prompt_extraccion]
@@ -104,10 +109,11 @@ else:
             return {"archivo": file_name, "error": str(e)}
 
     if uploaded_files:
-        if st.button("🚀 Procesar Documentos Ultrarrápido", type="primary"):
+        if st.button("🚀 Procesar Documentos en Paralelo", type="primary"):
             datos_tabla = []
             
-            with st.spinner("⚡ Procesando documentos simultáneamente con IA..."):
+            # Procesamiento en paralelo real con hilos múltiples
+            with st.spinner("⚡ Analizando fotos y documentos simultáneamente..."):
                 with ThreadPoolExecutor(max_workers=4) as executor:
                     resultados = list(executor.map(procesar_un_archivo, uploaded_files))
             
@@ -153,7 +159,7 @@ else:
             fig_bar = px.bar(df, x="proveedor", y="importe_total", color="proveedor", title="Comparativa Importe por Proveedor")
             st.plotly_chart(fig_bar, use_container_width=True)
 
-        # EXPORTACIÓN EXCEL PROFESIONAL CON ESTILO AZUL
+        # EXPORTACIÓN EXCEL PROFESIONAL (ESTILO AZUL Y 2 PESTAÑAS)
         st.markdown("---")
         st.subheader("📥 Exportación de Datos Optimizada")
 
@@ -169,7 +175,6 @@ else:
             df_resumen_contable.to_excel(writer, index=False, sheet_name='Resumen Contable')
             df.to_excel(writer, index=False, sheet_name='Detalle Facturas')
             
-            # Aplicar diseño profesional con cabecera azul
             workbook = writer.book
             header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
             header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
@@ -177,14 +182,12 @@ else:
             
             for sheetname in workbook.sheetnames:
                 sheet = workbook[sheetname]
-                # Estilizar cabecera
                 for col_num in range(1, sheet.max_column + 1):
                     cell = sheet.cell(row=1, column=col_num)
                     cell.fill = header_fill
                     cell.font = header_font
                     cell.alignment = align_center
                 
-                # Ajustar ancho de columnas automáticamente
                 for col in sheet.columns:
                     max_len = max(len(str(cell.value or '')) for cell in col)
                     col_letter = get_column_letter(col[0].column)
