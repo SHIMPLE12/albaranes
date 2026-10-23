@@ -66,18 +66,17 @@ else:
             # CASO 1: Imagen o foto
             if file_ext in ['png', 'jpg', 'jpeg']:
                 imagen = Image.open(uploaded_file)
-                # Reducimos resolución máxima a 800x800 para consumir menos recursos
                 imagen.thumbnail((800, 800))
                 img_byte_arr = io.BytesIO()
                 imagen.convert("RGB").save(img_byte_arr, format="JPEG", quality=65)
                 img_byte_arr.seek(0)
                 imagen_optimizada = Image.open(img_byte_arr)
                 
-              response = client.models.generate_content(
-    model='gemini-3.8-flash',  # <--- Cambia esto de 2.5 a 3.8
-    contents=[imagen_optimizada, prompt_extraccion],
-    config=config_json
-)
+                response = client.models.generate_content(
+                    model='gemini-3.8-flash',
+                    contents=[imagen_optimizada, prompt_extraccion],
+                    config=config_json
+                )
                 json_response = response.text
 
             # CASO 2: Documento PDF
@@ -91,7 +90,7 @@ else:
 
                 if texto_pdf and len(texto_pdf.strip()) > 50:
                     response = client.models.generate_content(
-                        model='gemini-2.5-flash',
+                        model='gemini-3.8-flash',
                         contents=[f"{prompt_extraccion}\n\nTexto:\n{texto_pdf}"],
                         config=config_json
                     )
@@ -103,7 +102,7 @@ else:
                         img_pdf = images[0]
                         img_pdf.thumbnail((800, 800))
                         response = client.models.generate_content(
-                            model='gemini-2.5-flash',
+                            model='gemini-3.8-flash',
                             contents=[img_pdf, prompt_extraccion],
                             config=config_json
                         )
