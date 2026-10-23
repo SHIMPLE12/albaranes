@@ -221,4 +221,4 @@ else:
         proveedor_sel = st.selectbox("Selecciona un proveedor:", proveedores)
         
         df_filtrado = df[df["proveedor"] == proveedor_sel]
-        st.table(df_filtrado[["archivo", "nif_proveedor", "fecha", "numero_factura", "importe_total"]])        
+        st.table(df_filtrado[["archivo", "nif_proveedor", "fecha", "numero_factura", "importe_total"]])
