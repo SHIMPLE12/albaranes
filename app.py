@@ -16,8 +16,7 @@ st.set_page_config(
 st.title("📄 Gestor Inteligente de Albaranes y Facturas")
 st.markdown("Sube tus documentos en **PDF** o hazles una **foto con el móvil** (JPG, PNG) para extraer los datos automáticamente.")
 
-# Configuración de la API de Gemini (asegúrate de tener tu API Key en los Secrets o cárgala aquí)
-# st.secrets["GEMINI_API_KEY"]
+# Configuración de la API de Gemini desde los secretos de Streamlit
 api_key = st.secrets.get("GEMINI_API_KEY", "")
 
 if not api_key:
@@ -55,7 +54,7 @@ else:
                         if file_extension in ['png', 'jpg', 'jpeg']:
                             imagen = Image.open(uploaded_file)
                             response = client.models.generate_content(
-                                model='gemini-2.5-flash',
+                                model='gemini-3.8-flash',
                                 contents=[imagen, prompt_extraccion]
                             )
                             response_text = response.text
@@ -69,23 +68,21 @@ else:
                                 if text:
                                     texto_pdf += text + "\n"
 
-                            # Si el PDF tiene texto nativo suficiente, usamos vía rápida (texto)
+                            # Si el PDF tiene texto nativo suficiente, usamos vía rápida
                             if texto_pdf and len(texto_pdf.strip()) > 50:
                                 prompt_con_texto = f"{prompt_extraccion}\n\nTexto del documento:\n{texto_pdf}"
                                 response = client.models.generate_content(
-                                    model='gemini-2.5-flash',
+                                    model='gemini-3.8-flash',
                                     contents=prompt_con_texto
                                 )
                                 response_text = response.text
                             else:
-                                # Si es un PDF escaneado (imagen), avisamos o tratamos
                                 st.info(f"ℹ️ El PDF '{file_name}' parece escaneado. Convirtiendo para lectura visual...")
-                                # Aquí puedes añadir la conversión a imagen si lo deseas, o dejar que la IA lo procese
                                 from pdf2image import convert_from_bytes
                                 images = convert_from_bytes(uploaded_file.read())
                                 if images:
                                     response = client.models.generate_content(
-                                        model='gemini-2.5-flash',
+                                        model='gemini-3.8-flash',
                                         contents=[images[0], prompt_extraccion]
                                     )
                                     response_text = response.text
@@ -104,4 +101,4 @@ else:
                 st.subheader("Resultados extraídos:")
                 for res in resultados:
                     with st.expander(f"📁 {res['Archivo']}"):
-                        st.code(res['Resultado JSON'], language='json')
+                        st.code(res['Resultado JSON / Datos'], language='json')
