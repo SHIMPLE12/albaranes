@@ -18,7 +18,7 @@ st.set_page_config(
 )
 
 st.title("📊 Gestor Inteligente de Albaranes y Facturas")
-st.markdown("Procesa tus documentos de forma ultrarrápida, analiza gráficos y exporta tu informe contable en Excel con diseño profesional.")
+st.markdown("Modo Ultra-Rápido activado: extracción optimizada con IA, gráficos y exportación a Excel profesional.")
 
 # Obtener la API Key desde los secretos
 api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -36,33 +36,32 @@ else:
     )
 
     def procesar_un_archivo(uploaded_file):
-        """Función ultrarrápida para procesar un único archivo con compresión de imagen previa"""
+        """Función optimizada para máxima velocidad con respuesta ligera de la IA"""
         file_name = uploaded_file.name
         file_ext = file_name.split('.')[-1].lower()
         
+        # Prompt ultracorto y directo para acelerar la respuesta del modelo
         prompt_extraccion = """
-        Analiza el siguiente albarán o factura y devuelve ÚNICAMENTE un objeto JSON válido con este formato estricto:
+        Extrae de este documento y devuélvelo en formato JSON exacto (sin texto adicional):
         {
-            "proveedor": "Nombre de la empresa / proveedor",
-            "nif_proveedor": "NIF o CIF del proveedor",
+            "proveedor": "Nombre del proveedor",
+            "nif_proveedor": "NIF o CIF",
             "fecha": "DD/MM/YYYY",
-            "numero_factura": "Número de albarán o factura",
+            "numero_factura": "Número",
             "importe_total": 0.0,
-            "conceptos_resumen": "Resumen de los artículos o conceptos principales"
+            "conceptos_resumen": "Breve resumen"
         }
-        Asegúrate de que 'importe_total' sea un número decimal puro (sin símbolos de moneda, por ejemplo 105.27) y 'fecha' mantenga el formato DD/MM/YYYY. Si no encuentras algún dato, pon una cadena vacía "" o 0.0 para el importe.
         """
 
         try:
             json_response = ""
             
-            # CASO 1: Imagen o foto de móvil (Optimizada y comprimida para volar)
+            # CASO 1: Imagen o foto de móvil (Comprimida al máximo para subida instantánea)
             if file_ext in ['png', 'jpg', 'jpeg']:
                 imagen = Image.open(uploaded_file)
-                # Redimensionar y comprimir a JPEG en memoria para reducir peso drásticamente
-                imagen.thumbnail((1280, 1280))
+                imagen.thumbnail((1024, 1024))
                 img_byte_arr = io.BytesIO()
-                imagen.convert("RGB").save(img_byte_arr, format="JPEG", quality=80)
+                imagen.convert("RGB").save(img_byte_arr, format="JPEG", quality=75)
                 img_byte_arr.seek(0)
                 imagen_optimizada = Image.open(img_byte_arr)
                 
@@ -82,10 +81,9 @@ else:
                         texto_pdf += text + "\n"
 
                 if texto_pdf and len(texto_pdf.strip()) > 50:
-                    prompt_full = f"{prompt_extraccion}\n\nTexto extraído:\n{texto_pdf}"
                     response = client.models.generate_content(
                         model='gemini-3.8-flash',
-                        contents=prompt_full
+                        contents=[f"{prompt_extraccion}\n\nTexto:\n{texto_pdf}"]
                     )
                     json_response = response.text
                 else:
@@ -93,7 +91,7 @@ else:
                     images = convert_from_bytes(uploaded_file.read())
                     if images:
                         img_pdf = images[0]
-                        img_pdf.thumbnail((1280, 1280))
+                        img_pdf.thumbnail((1024, 1024))
                         response = client.models.generate_content(
                             model='gemini-3.8-flash',
                             contents=[img_pdf, prompt_extraccion]
@@ -109,11 +107,11 @@ else:
             return {"archivo": file_name, "error": str(e)}
 
     if uploaded_files:
-        if st.button("🚀 Procesar Documentos en Paralelo", type="primary"):
+        if st.button("⚡ Procesar a Máxima Velocidad", type="primary"):
             datos_tabla = []
             
-            # Procesamiento en paralelo real con hilos múltiples
-            with st.spinner("⚡ Analizando fotos y documentos simultáneamente..."):
+            # Procesamiento simultáneo en hilos
+            with st.spinner("🚀 Leyendo documentos en paralelo..."):
                 with ThreadPoolExecutor(max_workers=4) as executor:
                     resultados = list(executor.map(procesar_un_archivo, uploaded_files))
             
