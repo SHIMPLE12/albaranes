@@ -158,21 +158,17 @@ else:
             fig_bar = px.bar(df, x="proveedor", y="importe_total", color="proveedor", title="Comparativa Importe por Proveedor")
             st.plotly_chart(fig_bar, use_container_width=True)
 
-        # EXPORTACIÓN EXCEL PROFESIONAL (CON FECHA, ESTILO AZUL Y 2 PESTAÑAS)
+        # EXPORTACIÓN EXCEL PROFESIONAL (SIN FECHA EN RESUMEN CONTABLE, ESTILO AZUL Y 2 PESTAÑAS)
         st.markdown("---")
         st.subheader("📥 Exportación de Datos Optimizada")
 
         col_ex, col_csv = st.columns(2)
 
-        # Agrupación para Resumen Contable incluyendo la fecha
+        # Agrupación para Resumen Contable (sin la columna fecha)
         df_resumen_contable = df.groupby(["proveedor", "nif_proveedor"]).agg(
-            Fecha=("fecha", lambda x: ", ".join(x.unique())),
             N_Facturas=("numero_factura", "count"),
             Total_Euros=("importe_total", "sum")
         ).reset_index()
-
-        # Reorganizar columnas del resumen contable
-        df_resumen_contable = df_resumen_contable[["proveedor", "nif_proveedor", "Fecha", "N_Facturas", "Total_Euros"]]
 
         output_excel = io.BytesIO()
         with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
