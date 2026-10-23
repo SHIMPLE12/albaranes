@@ -8,6 +8,7 @@ import json
 import pandas as pd
 import plotly.express as px
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
@@ -118,17 +119,35 @@ else:
     if uploaded_files:
         if st.button("⚡ Procesar a Máxima Velocidad", type="primary"):
             datos_tabla = []
+            total_archivos = len(uploaded_files)
             
-            # Procesamiento simultáneo en hilos
-            with st.spinner("🚀 Leyendo documentos en paralelo... (esto puede tardar unos segundos según el número de archivos)"):
+            # Barra de progreso visual para el usuario
+            barra_progreso = st.progress(0, text="🚀 Preparando lectura de documentos...")
+            
+            # Procesamiento seguro por bloques (lotes de 10) para proteger la RAM de 500MB y la API
+            tamano_lote = 10
+            for i in range(0, total_archivos, tamano_lote):
+                lote = uploaded_files[i:i + tamano_lote]
+                
+                # Ejecutamos el lote actual en paralelo (hasta 4 hilos)
                 with ThreadPoolExecutor(max_workers=4) as executor:
-                    resultados = list(executor.map(procesar_un_archivo, uploaded_files))
-            
-            for res in resultados:
-                if "error" in res:
-                    st.error(f"❌ Error procesando {res['archivo']}: {res['error']}")
-                else:
-                    datos_tabla.append(res)
+                    resultados_lote = list(executor.map(procesar_un_archivo, lote))
+                
+                for res in resultados_lote:
+                    if "error" in res:
+                        st.error(f"❌ Error procesando {res['archivo']}: {res['error']}")
+                    else:
+                        datos_tabla.append(res)
+                
+                # Actualizar barra de progreso
+                progreso_actual = min(int(((i + len(lote)) / total_archivos) * 100), 100)
+                barra_progreso.progress(progreso_actual, text=f"🚀 Procesados {i + len(lote)} de {total_archivos} documentos...")
+                
+                # Pequeña pausa de seguridad entre lotes para evitar saturar la API de Google
+                if i + tamano_lote < total_archivos:
+                    time.sleep(0.5)
+
+            barra_progreso.empty()
 
             if datos_tabla:
                 st.session_state["df_resultados"] = pd.DataFrame(datos_tabla)
