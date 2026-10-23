@@ -1,7 +1,7 @@
 import streamlit as st
 from google import genai
 from PIL import Image
-import pillow_heic  # <--- IMPORTANTE: Permite leer fotos de iPhone (.heic)
+import pillow_heic  # Permite leer fotos de iPhone (.heic)
 import pypdf
 import io
 import json
