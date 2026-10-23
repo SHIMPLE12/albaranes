@@ -6,6 +6,7 @@ import io
 import json
 import pandas as pd
 import plotly.express as px
+import os
 from concurrent.futures import ThreadPoolExecutor
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
@@ -20,11 +21,11 @@ st.set_page_config(
 st.title("📊 Gestor Inteligente de Albaranes y Facturas")
 st.markdown("Modo Ultra-Rápido activado: extracción optimizada con IA, gráficos y exportación a Excel profesional.")
 
-# Obtener la API Key desde los secretos
-api_key = st.secrets.get("GEMINI_API_KEY", "")
+# Obtener la API Key desde las variables de entorno de Render
+api_key = os.environ.get("GEMINI_API_KEY", "")
 
 if not api_key:
-    st.warning("⚠️ No se ha encontrado la clave de API (GEMINI_API_KEY) en los secretos de Streamlit.")
+    st.warning("⚠️ No se ha encontrado la clave de API (GEMINI_API_KEY) en las variables de entorno de Render.")
 else:
     client = genai.Client(api_key=api_key)
 
@@ -157,16 +158,21 @@ else:
             fig_bar = px.bar(df, x="proveedor", y="importe_total", color="proveedor", title="Comparativa Importe por Proveedor")
             st.plotly_chart(fig_bar, use_container_width=True)
 
-        # EXPORTACIÓN EXCEL PROFESIONAL (ESTILO AZUL Y 2 PESTAÑAS)
+        # EXPORTACIÓN EXCEL PROFESIONAL (CON FECHA, ESTILO AZUL Y 2 PESTAÑAS)
         st.markdown("---")
         st.subheader("📥 Exportación de Datos Optimizada")
 
         col_ex, col_csv = st.columns(2)
 
+        # Agrupación para Resumen Contable incluyendo la fecha
         df_resumen_contable = df.groupby(["proveedor", "nif_proveedor"]).agg(
+            Fecha=("fecha", lambda x: ", ".join(x.unique())),
             N_Facturas=("numero_factura", "count"),
             Total_Euros=("importe_total", "sum")
         ).reset_index()
+
+        # Reorganizar columnas del resumen contable
+        df_resumen_contable = df_resumen_contable[["proveedor", "nif_proveedor", "Fecha", "N_Facturas", "Total_Euros"]]
 
         output_excel = io.BytesIO()
         with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
