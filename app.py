@@ -41,7 +41,7 @@ else:
     )
 
     def procesar_un_archivo(uploaded_file):
-        """Función optimizada para máxima velocidad con respuesta ligera de la IA"""
+        """Función optimizada para máxima velocidad y ahorro de tokens con la IA"""
         file_name = uploaded_file.name
         file_ext = file_name.split('.')[-1].lower()
         
@@ -61,12 +61,14 @@ else:
         try:
             json_response = ""
             
-            # CASO 1: Imagen, foto de móvil o iPhone (Comprimida al máximo para subida instantánea)
+            # CASO 1: Imagen, foto de móvil o iPhone (Optimizada al máximo para ahorrar tokens de visión)
             if file_ext in ['png', 'jpg', 'jpeg', 'heic']:
                 imagen = Image.open(uploaded_file)
-                imagen.thumbnail((1024, 1024))
+                # Reducimos resolución máxima a 800x800 para consumir muchos menos tokens
+                imagen.thumbnail((800, 800))
                 img_byte_arr = io.BytesIO()
-                imagen.convert("RGB").save(img_byte_arr, format="JPEG", quality=75)
+                # Comprimimos a calidad 65 para mantener legibilidad reduciendo peso y coste
+                imagen.convert("RGB").save(img_byte_arr, format="JPEG", quality=65)
                 img_byte_arr.seek(0)
                 imagen_optimizada = Image.open(img_byte_arr)
                 
@@ -96,7 +98,7 @@ else:
                     images = convert_from_bytes(uploaded_file.read())
                     if images:
                         img_pdf = images[0]
-                        img_pdf.thumbnail((1024, 1024))
+                        img_pdf.thumbnail((800, 800))
                         response = client.models.generate_content(
                             model='gemini-3.8-flash',
                             contents=[img_pdf, prompt_extraccion]
