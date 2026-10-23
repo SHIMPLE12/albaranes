@@ -16,7 +16,7 @@ st.set_page_config(
 )
 
 st.title("📊 Gestor Inteligente de Albaranes y Facturas")
-st.markdown("Procesa tus documentos al instante con IA avanzada, analiza gráficos y exporta a Excel/CSV de forma impecable.")
+st.markdown("Procesa tus documentos al instante, analiza gráficos y exporta a Excel con **resumen contable agrupado** y **detalle de facturas**.")
 
 # Obtener la API Key desde los secretos
 api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -34,7 +34,7 @@ else:
     )
 
     def procesar_un_archivo(uploaded_file):
-        """Función optimizada para procesar un único archivo de forma independiente (para concurrencia)"""
+        """Función optimizada para procesar un único archivo en paralelo"""
         file_name = uploaded_file.name
         file_ext = file_name.split('.')[-1].lower()
         
@@ -48,7 +48,7 @@ else:
             "importe_total": 0.0,
             "conceptos_resumen": "Resumen de los artículos o conceptos principales"
         }
-        Asegúrate de que 'importe_total' sea un número decimal puro (sin símbolos de moneda, por ejemplo 59.17) y 'fecha' mantenga el formato DD/MM/YYYY. Si no encuentras algún dato, pon una cadena vacía "" o 0.0 para el importe.
+        Asegúrate de que 'importe_total' sea un número decimal puro (sin símbolos de moneda, por ejemplo 105.27) y 'fecha' mantenga el formato DD/MM/YYYY. Si no encuentras algún dato, pon una cadena vacía "" o 0.0 para el importe.
         """
 
         try:
@@ -106,7 +106,7 @@ else:
         if st.button("🚀 Procesar Documentos Ultrarrápido", type="primary"):
             datos_tabla = []
             
-            # Usamos ThreadPoolExecutor para procesar todas las fotos/PDFs EN PARALELO (en segundos)
+            # Procesamiento paralelo en segundos con ThreadPoolExecutor
             with st.spinner("⚡ Procesando documentos simultáneamente con IA..."):
                 with ThreadPoolExecutor(max_workers=4) as executor:
                     resultados = list(executor.map(procesar_un_archivo, uploaded_files))
@@ -124,12 +124,11 @@ else:
     if "df_resultados" in st.session_state and not st.session_state["df_resultados"].empty:
         df = st.session_state["df_resultados"]
 
-        # Limpieza de tipos de datos para que Excel y métricas funcionen a la perfección
+        # Limpieza y tipado
         df["importe_total"] = pd.to_numeric(df["importe_total"], errors='coerce').fillna(0.0)
         
-        # Ordenar columnas de forma lógica e intuitiva
+        # Ordenar columnas de detalle
         columnas_ordenadas = ["archivo", "proveedor", "nif_proveedor", "fecha", "numero_factura", "importe_total", "conceptos_resumen"]
-        # Asegurar que solo usamos las columnas que existen
         columnas_existentes = [col for col in columnas_ordenadas if col in df.columns]
         df = df[columnas_existentes]
 
@@ -157,22 +156,31 @@ else:
             fig_bar = px.bar(df, x="proveedor", y="importe_total", color="proveedor", title="Comparativa Importe por Proveedor")
             st.plotly_chart(fig_bar, use_container_width=True)
 
-        # EXPORTACIÓN EXCEL Y CSV CORREGIDA
+        # EXPORTACIÓN EXCEL PROFESIONAL (CON 2 PESTAÑAS: Resumen Contable y Detalle Facturas)
         st.markdown("---")
         st.subheader("📥 Exportación de Datos Optimizada")
 
         col_ex, col_csv = st.columns(2)
 
-        # Excel profesional con openpyxl (formatos numéricos limpios)
+        # Generar DataFrame para Resumen Contable agrupado
+        df_resumen_contable = df.groupby(["proveedor", "nif_proveedor"]).agg(
+            N_Facturas=("numero_factura", "count"),
+            Total_Euros=("importe_total", "sum")
+        ).reset_index()
+
         output_excel = io.BytesIO()
         with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Facturas_Albaranes')
+            # Pestaña 1 idéntica al modelo solicitado
+            df_resumen_contable.to_excel(writer, index=False, sheet_name='Resumen Contable')
+            # Pestaña 2 con el detalle completo
+            df.to_excel(writer, index=False, sheet_name='Detalle Facturas')
+            
         excel_data = output_excel.getvalue()
 
         col_ex.download_button(
-            label="📊 Descargar Informe en Excel (.xlsx)",
+            label="📊 Descargar Informe Excel Multihoja (.xlsx)",
             data=excel_data,
-            file_name="informe_facturas_albaranes.xlsx",
+            file_name="resumen_contable_facturas.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
