@@ -15,7 +15,7 @@ st.set_page_config(
 )
 
 st.title("📊 Gestor Inteligente de Albaranes y Facturas")
-st.markdown("Procesa tus **PDFs** y **Fotos de Móvil (JPG, PNG)**, analiza los gastos con **gráficos** y descarga tus datos en **Excel / CSV**.")
+st.markdown("Procesa tus **PDFs** y **Fotos de Móvil (JPG, PNG)** de forma ultrarrápida, analiza los gastos con **gráficos** y descarga tus datos en **Excel / CSV**.")
 
 # Obtener la API Key desde los secretos
 api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -52,13 +52,16 @@ else:
                 file_name = uploaded_file.name
                 file_ext = file_name.split('.')[-1].lower()
                 
-                with st.spinner(f"Analizando {file_name}..."):
+                with st.spinner(f"Optimizando y analizando {file_name}..."):
                     try:
                         json_response = ""
                         
-                        # CASO 1: Foto desde el móvil o imagen
+                        # CASO 1: Foto desde el móvil o imagen (Con compresión automática para mayor velocidad)
                         if file_ext in ['png', 'jpg', 'jpeg']:
                             imagen = Image.open(uploaded_file)
+                            # Redimensionamos la imagen manteniendo la proporción (máx 1024px) para que vuele
+                            imagen.thumbnail((1024, 1024))
+                            
                             response = client.models.generate_content(
                                 model='gemini-3.8-flash',
                                 contents=[imagen, prompt_extraccion]
@@ -85,13 +88,15 @@ else:
                                 from pdf2image import convert_from_bytes
                                 images = convert_from_bytes(uploaded_file.read())
                                 if images:
+                                    img_pdf = images[0]
+                                    img_pdf.thumbnail((1024, 1024))
                                     response = client.models.generate_content(
                                         model='gemini-3.8-flash',
-                                        contents=[images[0], prompt_extraccion]
+                                        contents=[img_pdf, prompt_extraccion]
                                     )
                                     json_response = response.text
 
-                        # Limpieza del formato Markdown del JSON si la IA incluye triples comillas
+                        # Limpieza del formato Markdown del JSON
                         clean_json = json_response.replace("```json", "").replace("```", "").strip()
                         parsed_data = json.loads(clean_json)
                         parsed_data["archivo"] = file_name
@@ -101,7 +106,6 @@ else:
                         st.error(f"❌ Error procesando {file_name}: {e}")
 
             if datos_tabla:
-                # Guardar datos en la sesión de Streamlit para no perderlos al interactuar
                 st.session_state["df_resultados"] = pd.DataFrame(datos_tabla)
 
     # MOSTRAR RESULTADOS, GRÁFICOS Y OPCIONES DE DESCARGA
