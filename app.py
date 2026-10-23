@@ -73,11 +73,11 @@ else:
                 img_byte_arr.seek(0)
                 imagen_optimizada = Image.open(img_byte_arr)
                 
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash', # Actualizado al modelo flash eficiente
-                    contents=[imagen_optimizada, prompt_extraccion],
-                    config=config_json
-                )
+              response = client.models.generate_content(
+    model='gemini-3.8-flash',  # <--- Cambia esto de 2.5 a 3.8
+    contents=[imagen_optimizada, prompt_extraccion],
+    config=config_json
+)
                 json_response = response.text
 
             # CASO 2: Documento PDF
