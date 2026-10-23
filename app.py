@@ -1,6 +1,7 @@
 import streamlit as st
 from google import genai
 from PIL import Image
+import pillow_heic  # <--- IMPORTANTE: Permite leer fotos de iPhone (.heic)
 import pypdf
 import io
 import json
@@ -10,6 +11,9 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
+
+# Registrar formato HEIC para que Pillow pueda abrir fotos de iPhone
+pillow_heic.register_heic_opener()
 
 # Configuración de la página
 st.set_page_config(
@@ -29,10 +33,10 @@ if not api_key:
 else:
     client = genai.Client(api_key=api_key)
 
-    # Subida de archivos (móvil y PC)
+    # Subida de archivos (móvil, PC y iPhone HEIC)
     uploaded_files = st.file_uploader(
-        "Sube tus albaranes y facturas (PDF, JPG, PNG):",
-        type=["pdf", "png", "jpg", "jpeg"],
+        "Sube tus albaranes y facturas (PDF, JPG, PNG, HEIC):",
+        type=["pdf", "png", "jpg", "jpeg", "heic"],
         accept_multiple_files=True
     )
 
@@ -57,8 +61,8 @@ else:
         try:
             json_response = ""
             
-            # CASO 1: Imagen o foto de móvil (Comprimida al máximo para subida instantánea)
-            if file_ext in ['png', 'jpg', 'jpeg']:
+            # CASO 1: Imagen, foto de móvil o iPhone (Comprimida al máximo para subida instantánea)
+            if file_ext in ['png', 'jpg', 'jpeg', 'heic']:
                 imagen = Image.open(uploaded_file)
                 imagen.thumbnail((1024, 1024))
                 img_byte_arr = io.BytesIO()
@@ -158,21 +162,17 @@ else:
             fig_bar = px.bar(df, x="proveedor", y="importe_total", color="proveedor", title="Comparativa Importe por Proveedor")
             st.plotly_chart(fig_bar, use_container_width=True)
 
-        # EXPORTACIÓN EXCEL PROFESIONAL (CON FECHA, ESTILO AZUL Y 2 PESTAÑAS)
+        # EXPORTACIÓN EXCEL PROFESIONAL (SIN FECHA EN RESUMEN CONTABLE, ESTILO AZUL Y 2 PESTAÑAS)
         st.markdown("---")
         st.subheader("📥 Exportación de Datos Optimizada")
 
         col_ex, col_csv = st.columns(2)
 
-        # Agrupación para Resumen Contable incluyendo la fecha
+        # Agrupación para Resumen Contable (sin la columna fecha)
         df_resumen_contable = df.groupby(["proveedor", "nif_proveedor"]).agg(
-            Fecha=("fecha", lambda x: ", ".join(x.unique())),
             N_Facturas=("numero_factura", "count"),
             Total_Euros=("importe_total", "sum")
         ).reset_index()
-
-        # Reorganizar columnas del resumen contable
-        df_resumen_contable = df_resumen_contable[["proveedor", "nif_proveedor", "Fecha", "N_Facturas", "Total_Euros"]]
 
         output_excel = io.BytesIO()
         with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
