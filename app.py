@@ -1,5 +1,6 @@
 import streamlit as st
 from google import genai
+from google.genai import types
 from PIL import Image
 import pypdf
 import io
@@ -43,7 +44,7 @@ else:
         
         # Prompt ultracorto y directo para acelerar la respuesta del modelo
         prompt_extraccion = """
-        Extrae de este documento y devuélvelo en formato JSON exacto (sin texto adicional):
+        Extrae de este documento y devuélvelo en formato JSON exacto:
         {
             "proveedor": "Nombre del proveedor",
             "nif_proveedor": "NIF o CIF",
@@ -54,23 +55,28 @@ else:
         }
         """
 
+        # Configuración para forzar una respuesta JSON pura y evitar fallos de parseo
+        config_json = types.GenerateContentConfig(
+            response_mime_type="application/json"
+        )
+
         try:
             json_response = ""
             
-            # CASO 1: Imagen o foto (Optimizada al máximo para ahorrar tokens de visión)
+            # CASO 1: Imagen o foto
             if file_ext in ['png', 'jpg', 'jpeg']:
                 imagen = Image.open(uploaded_file)
-                # Reducimos resolución máxima a 800x800 para consumir muchos menos tokens
+                # Reducimos resolución máxima a 800x800 para consumir menos recursos
                 imagen.thumbnail((800, 800))
                 img_byte_arr = io.BytesIO()
-                # Comprimimos a calidad 65 para mantener legibilidad reduciendo peso y coste
                 imagen.convert("RGB").save(img_byte_arr, format="JPEG", quality=65)
                 img_byte_arr.seek(0)
                 imagen_optimizada = Image.open(img_byte_arr)
                 
                 response = client.models.generate_content(
-                    model='gemini-3.8-flash',
-                    contents=[imagen_optimizada, prompt_extraccion]
+                    model='gemini-2.5-flash', # Actualizado al modelo flash eficiente
+                    contents=[imagen_optimizada, prompt_extraccion],
+                    config=config_json
                 )
                 json_response = response.text
 
@@ -85,8 +91,9 @@ else:
 
                 if texto_pdf and len(texto_pdf.strip()) > 50:
                     response = client.models.generate_content(
-                        model='gemini-3.8-flash',
-                        contents=[f"{prompt_extraccion}\n\nTexto:\n{texto_pdf}"]
+                        model='gemini-2.5-flash',
+                        contents=[f"{prompt_extraccion}\n\nTexto:\n{texto_pdf}"],
+                        config=config_json
                     )
                     json_response = response.text
                 else:
@@ -96,13 +103,13 @@ else:
                         img_pdf = images[0]
                         img_pdf.thumbnail((800, 800))
                         response = client.models.generate_content(
-                            model='gemini-3.8-flash',
-                            contents=[img_pdf, prompt_extraccion]
+                            model='gemini-2.5-flash',
+                            contents=[img_pdf, prompt_extraccion],
+                            config=config_json
                         )
                         json_response = response.text
 
-            clean_json = json_response.replace("```json", "").replace("```", "").strip()
-            parsed_data = json.loads(clean_json)
+            parsed_data = json.loads(json_response)
             parsed_data["archivo"] = file_name
             return parsed_data
 
@@ -114,7 +121,7 @@ else:
             datos_tabla = []
             
             # Procesamiento simultáneo en hilos
-            with st.spinner("🚀 Leyendo documentos en paralelo..."):
+            with st.spinner("🚀 Leyendo documentos en paralelo... (esto puede tardar unos segundos según el número de archivos)"):
                 with ThreadPoolExecutor(max_workers=4) as executor:
                     resultados = list(executor.map(procesar_un_archivo, uploaded_files))
             
@@ -127,27 +134,33 @@ else:
             if datos_tabla:
                 st.session_state["df_resultados"] = pd.DataFrame(datos_tabla)
 
-    # MOSTRAR RESULTADOS, TABLA Y DESCARGAS
+    # MOSTRAR RESULTADOS, TABLA EDITABLE Y DESCARGAS
     if "df_resultados" in st.session_state and not st.session_state["df_resultados"].empty:
-        df = st.session_state["df_resultados"]
+        df_original = st.session_state["df_resultados"]
 
-        df["importe_total"] = pd.to_numeric(df["importe_total"], errors='coerce').fillna(0.0)
+        df_original["importe_total"] = pd.to_numeric(df_original["importe_total"], errors='coerce').fillna(0.0)
         
         columnas_ordenadas = ["archivo", "proveedor", "nif_proveedor", "fecha", "numero_factura", "importe_total", "conceptos_resumen"]
-        columnas_existentes = [col for col in columnas_ordenadas if col in df.columns]
-        df = df[columnas_existentes]
+        columnas_existentes = [col for col in columnas_ordenadas if col in df_original.columns]
+        df_original = df_original[columnas_existentes]
 
         st.markdown("---")
         st.subheader("📋 Resumen General de Documentos")
+        st.markdown("💡 *Puedes hacer clic en cualquier celda de la tabla inferior para corregir errores de lectura de la IA antes de exportar.*")
+        
+        # TABLA EDITABLE: El usuario puede corregir datos mal leídos al instante
+        df = st.data_editor(
+            df_original,
+            use_container_width=True,
+            key="editor_facturas_tabla"
+        )
         
         col1, col2, col3 = st.columns(3)
         col1.metric("Total Documentos", len(df))
         col2.metric("Gasto Total", f"{df['importe_total'].sum():,.2f} €")
         col3.metric("Proveedores Distintos", df["proveedor"].nunique())
 
-        st.dataframe(df, use_container_width=True)
-
-        # GRÁFICOS
+        # GRÁFICOS (Basados en el DataFrame editado)
         st.markdown("---")
         st.subheader("📈 Análisis y Gráficos de Gastos")
         
@@ -160,13 +173,12 @@ else:
             fig_bar = px.bar(df, x="proveedor", y="importe_total", color="proveedor", title="Comparativa Importe por Proveedor")
             st.plotly_chart(fig_bar, use_container_width=True)
 
-        # EXPORTACIÓN EXCEL PROFESIONAL (SIN FECHA EN RESUMEN CONTABLE, ESTILO AZUL Y 2 PESTAÑAS)
+        # EXPORTACIÓN EXCEL PROFESIONAL
         st.markdown("---")
         st.subheader("📥 Exportación de Datos Optimizada")
 
         col_ex, col_csv = st.columns(2)
 
-        # Agrupación para Resumen Contable (sin la columna fecha)
         df_resumen_contable = df.groupby(["proveedor", "nif_proveedor"]).agg(
             N_Facturas=("numero_factura", "count"),
             Total_Euros=("importe_total", "sum")
@@ -211,12 +223,3 @@ else:
             file_name="informe_facturas_albaranes.csv",
             mime="text/csv"
         )
-
-        # VISTA POR PROVEEDOR
-        st.markdown("---")
-        st.subheader("📁 Agrupación y Vista por Proveedor")
-        proveedores = df["proveedor"].unique().tolist()
-        proveedor_sel = st.selectbox("Selecciona un proveedor:", proveedores)
-        
-        df_filtrado = df[df["proveedor"] == proveedor_sel]
-        st.table(df_filtrado[["archivo", "nif_proveedor", "fecha", "numero_factura", "importe_total"]])
