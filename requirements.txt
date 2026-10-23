@@ -1,7 +1,9 @@
 streamlit
 google-genai
-pandas
+pillow
 pypdf
 pdf2image
+pandas
 plotly
 openpyxl
+pillow-heic
