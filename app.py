@@ -308,3 +308,20 @@ else:
                     )
                     
                     st.rerun()
+                    if datos_tabla:
+                    st.success("✅ ¡Procesamiento completado con éxito!")
+                    df = pd.DataFrame(datos_tabla)
+                    st.dataframe(df, use_container_width=True)
+                    
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        df.to_excel(writer, index=False, sheet_name='Facturas')
+                    excel_data = output.getvalue()
+                    
+                    st.download_button(
+                        label="📥 Descargar Excel para Contabilidad",
+                        data=excel_data,
+                        file_name="facturas_procesadas.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                    # HE QUITADO EL st.rerun() DE AQUÍ PARA QUE EL BOTÓN NO DESAPAREZCA
