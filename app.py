@@ -179,7 +179,7 @@ else:
 
                 if texto_pdf and len(texto_pdf.strip()) > 30:
                     response = client.models.generate_content(
-                        model='gemini-3.8-flash',
+                        model='gemini-2.5-flash',
                         contents=[f"{prompt_extraccion}\n\nTexto del documento:\n{texto_pdf}"],
                         config=config_json
                     )
@@ -198,7 +198,7 @@ else:
                     
                     images_a_procesar = primera_img
                     
-                    # Si tiene más de 1 página (ej. 5 o 10), añadimos la última página (donde está el total)
+                    # Si tiene más de 1 página, añadimos la última página (donde está el total)
                     if total_paginas > 1:
                         uploaded_file.seek(0)
                         ultima_img = convert_from_bytes(uploaded_file.read(), first_page=total_paginas, last_page=total_paginas)
@@ -306,22 +306,5 @@ else:
                         file_name="facturas_procesadas.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
-                    
-                    st.rerun()
-                    if datos_tabla:
-                    st.success("✅ ¡Procesamiento completado con éxito!")
-                    df = pd.DataFrame(datos_tabla)
-                    st.dataframe(df, use_container_width=True)
-                    
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        df.to_excel(writer, index=False, sheet_name='Facturas')
-                    excel_data = output.getvalue()
-                    
-                    st.download_button(
-                        label="📥 Descargar Excel para Contabilidad",
-                        data=excel_data,
-                        file_name="facturas_procesadas.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-                    # HE QUITADO EL st.rerun() DE AQUÍ PARA QUE EL BOTÓN NO DESAPAREZCA
+                else:
+                    st.warning("⚠️ No se pudieron extraer datos de los archivos seleccionados.")
